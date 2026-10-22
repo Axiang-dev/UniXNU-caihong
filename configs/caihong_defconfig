@@ -2,8 +2,8 @@
 #
 # Stage 1 profile: kernel entry only. No storage, display or GPU driver is
 # enabled until the entry path is proven on the tablet.
-CONFIG_XNU_SOURCE_CORECRYPTO14=y
-CONFIG_XNU_SOURCE_PTHREAD=y
+CONFIG_XNU_SOURCE_CORECRYPTO14=n
+CONFIG_XNU_SOURCE_PTHREAD=n
 CONFIG_XNU_ARM_DT_PLATFORM=y
 CONFIG_XNU_ARMCPU=y
 CONFIG_XNU_NATIVE_ARCH_TIMER=y
