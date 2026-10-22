@@ -47,9 +47,10 @@ windows = [
 [kernel]
 defconfig = "caihong_defconfig"
 # Only the device supplied archive: corecrypto, libpthread, ArmDTPlatform and
-# ArmCpu are handled by the driver itself in this UniXNU version.
+# ArmCpu are handled by the driver itself in this UniXNU version. The path is
+# resolved inside the tree's scripts/ directory, so no prefix here.
 archives = [
-  "scripts/build-caihong-legacy-display.py",
+  "build-caihong-legacy-display.py",
 ]
 
 [kernel.prelink]
