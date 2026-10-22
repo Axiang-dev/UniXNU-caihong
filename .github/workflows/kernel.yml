@@ -63,6 +63,10 @@ jobs:
 
       - name: Build the kernel
         working-directory: unixnu
+        env:
+          # prepare-xnu-source.py pulls Apple sources from the GitHub API, which
+          # rate limits unauthenticated requests from shared runner addresses.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./unixnu build kernel -D ../device -j "$(sysctl -n hw.ncpu)"
 
       - name: Prelink against the IPSW
