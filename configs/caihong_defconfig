@@ -18,11 +18,10 @@ CONFIG_XNU_NATIVE_AES=n
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
 CONFIG_XNU_NATIVE_RAM_BLOCK=n
 # The offline-component-load-probes patch calls native_legacy_display_probe()
-# from bsd_init without a config guard, so the driver has to be compiled in.
-# Its archive is device specific: scripts/build-caihong-legacy-display.py builds
-# a stub until this port has a real panel backend.
-CONFIG_XNU_BUILD_ARCHIVES=y
-CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
+# from bsd_init without a config guard. CI rewrites that call out of the patch
+# (see .github/scripts/patch-xnu-source.py) instead of building a display
+# backend this port does not have yet.
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_NATIVE_ADRENO=n
 CONFIG_XNU_SHENG_PMGR=n

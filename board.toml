@@ -46,15 +46,8 @@ windows = [
 
 [kernel]
 defconfig = "caihong_defconfig"
-# Only the device supplied archive: corecrypto, libpthread, ArmDTPlatform and
-# ArmCpu are handled by the driver itself in this UniXNU version. The path is
-# resolved inside the tree's scripts/ directory, so no prefix here.
-archives = [
-  "build-corecrypto-14.py",
-  "build-corecrypto-14.py --namespace",
-  "build-libpthread-kernel.py",
-  "build-caihong-legacy-display.py",
-]
+# No device archives: the driver builds corecrypto, libpthread, ArmDTPlatform
+# and ArmCpu itself, and the display probe call is patched out in CI.
 
 [kernel.prelink]
 tool = "kits/NativePrelink/emit_prelink.py"
