@@ -1,0 +1,29 @@
+version = 1
+
+# First payload for the OnePlus Pad Pro (caihong). There is no kernel yet, so
+# the only real entry points at a file that does not exist; the menu still
+# proves that the volume is found and parsed.
+
+[boot]
+timeout = 5
+default = "xnu"
+connect_all = true
+
+[ui]
+title = "UniXNU"
+logo = true
+layout = "auto"
+
+[[entry]]
+id = "xnu"
+title = "OnePlus Pad Pro - XNU"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v serial=3"
+enabled = true
+
+[[entry]]
+id = "shell"
+title = "Return to firmware"
+type = "action"
+action = "exit"

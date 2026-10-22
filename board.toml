@@ -1,0 +1,137 @@
+# UniXNU board description for OnePlus Pad Pro (caihong, SM8650).
+#
+# Ported from the official device template (UniXNU/examples/device) with board
+# values taken from:
+#   - the caihong UEFI port   : D:\uefi\Resources\Configs\caihong.toml
+#   - the caihong device tree : D:\uefi\Resources\DTBs\caihong.dtb
+#   - the SM8650 reference    : UniXNU-OnePlus-Ace5 (giulia) board.toml
+#
+# Fields marked TODO need data read from the actual device.
+
+[board]
+name = "caihong"                   # output goes to out/caihong/
+soc = "SM8650"
+description = "OnePlus Pad Pro (OPD2404), Snapdragon 8 Gen 3"
+kit = "caihong"                    # this repository's package/ appears as kits/caihong
+
+[ipsw]
+# Same target as the SM8650 giulia port: an iPad 5th gen restore image. The ADT
+# forges the platform identity, so the IPSW model has no relation to the tablet.
+url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+product = "iPad7,1"
+version = "17.7.11"
+build = "21H461"
+device_class = "j120ap"
+chip_id = 0x8011
+board_id = 12
+fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]
+
+[ipsw.sha256]
+"044-76040-038.dmg" = "3f99b859c9728379110b66657c7b15285bcb1925ad8b5726542e2cdcf8b1028d"
+"044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
+
+[userdata]
+# TODO: read the live GPT on the tablet before flashing anything.
+#   adb shell "cat /proc/partitions"
+#   adb shell "sgdisk --print /dev/block/sda"   (or toybox fdisk -l)
+# first_lba/last_lba are the extents of the partition named "userdata".
+# Do not guess these: a wrong range overwrites an unrelated partition.
+first_lba = 0x0
+last_lba = 0x0
+lba_bytes = 4096
+windows = [
+  { name = "OS", component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
+
+[kernel]
+defconfig = "caihong_defconfig"
+archives = [
+  "scripts/build-corecrypto-14.py",
+  "scripts/build-corecrypto-14.py --namespace",
+  "scripts/build-arm-driver.py ArmDTPlatform",
+  "scripts/build-arm-driver.py ArmCpu",
+  "scripts/build-libpthread-kernel.py",
+]
+
+[kernel.prelink]
+tool = "kits/NativePrelink/emit_prelink.py"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+kernelcache_sha256 = "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7"
+slide = "-0x1000000"
+early_security_init = "com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"
+roots = [
+  "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
+  "com.apple.driver.AppleARMPlatform",
+  "com.apple.driver.AppleARMWatchdogTimer",
+  "com.apple.driver.AppleAudioClockLibs",
+  "com.apple.driver.AppleEffaceableStorage",
+  "com.apple.driver.AppleIISController",
+  "com.apple.driver.AppleM2ScalerCSCDriver",
+  "com.apple.driver.AppleMobileFileIntegrity",
+  "com.apple.driver.ApplePMGR",
+  "com.apple.driver.IODARTFamily",
+  "com.apple.filesystems.apfs",
+  "com.apple.iokit.CoreAnalyticsFamily",
+  "com.apple.iokit.IOAVFamily",
+  "com.apple.iokit.IOAudio2Family",
+  "com.apple.iokit.IOCECFamily",
+  "com.apple.iokit.IOCryptoAcceleratorFamily",
+  "com.apple.iokit.IOGPUFamily",
+  "com.apple.iokit.IOHDCPFamily",
+  "com.apple.iokit.IOMobileGraphicsFamily",
+  "com.apple.iokit.IOReportFamily",
+  "com.apple.iokit.IOSlowAdaptiveClockingFamily",
+  "com.apple.iokit.IOStorageFamily",
+  "com.apple.iokit.IOSurface",
+  "com.apple.kec.Libm",
+  "com.apple.kec.corecrypto",
+  "com.apple.kext.AppleMatch",
+  "com.apple.kext.CoreTrust",
+  "com.apple.security.AppleImage4",
+  "com.apple.security.sandbox",
+  "com.apple.iokit.IOHIDFamily",
+  "com.apple.iokit.IOHIDEventDriver",
+]
+
+[firmware]
+config = "caihong"                 # Resources/Configs/caihong.toml in the Mu-Silicium checkout
+dsc = "Platforms/OnePlus/caihongPkg/caihong.dsc"
+fd = "Build/caihongPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+packages = [
+  "{uefi}",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot",
+  "{edk2}",
+]
+
+[firmware.defines]
+DEVICE_MODEL = "caihong"
+
+[bootimg.image]
+# Must match [uefi_fd] base/size in Resources/Configs/caihong.toml: BootShim is
+# compiled with these and the ABL jumps to that address.
+base = 0xA7100000
+pagesize = 4096
+# The tablet runs Android 16, whose ABL rejects v0 boot images.
+header_version = 4
+
+[payload]
+volume = "CAIHONGESP"              # FAT label, at most 11 characters
+size_mib = 192
+loader = "firmware"                # DarwinBoot lives in the firmware volume
+title = "OnePlus Pad Pro (caihong)"
+dram_size = "0x10000000"           # handoff window, not installed RAM
+panic_screen = true
+timeout = 3
+kernel_args = ["-v", "serial=3"]
+
+[payload.adt]
+tool = "scripts/make-caihong-adt.py"
+chip_id = "0"
+owned_memory_size = "0x10000000"
+cpu_regs = "0"
+psci_method = "smc"
+packed_data_ramdisk = true
+ipad_identity = true
+unique_chip_id = "required"

@@ -1,0 +1,6 @@
+# generated
+build/
+payload/payload.img
+
+# macOS noise
+.DS_Store
