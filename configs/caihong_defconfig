@@ -17,7 +17,9 @@ CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_AES=n
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
 CONFIG_XNU_NATIVE_RAM_BLOCK=n
-CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+# The offline-component-load-probes patch calls native_legacy_display_probe()
+# from bsd_init without a config guard, so the driver has to be compiled in.
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_NATIVE_ADRENO=n
 CONFIG_XNU_SHENG_PMGR=n
