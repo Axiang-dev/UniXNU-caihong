@@ -57,6 +57,11 @@ jobs:
         working-directory: unixnu
         run: ./unixnu fetch -D ../device
 
+      - name: Authorize the Apple source lookups
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 device/.github/scripts/patch-xnu-source.py unixnu
+
       - name: Assemble the build tree
         working-directory: unixnu
         run: ./unixnu tree -D ../device
