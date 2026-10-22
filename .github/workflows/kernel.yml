@@ -1,0 +1,80 @@
+name: kernel
+
+# Builds the XNU kernel for caihong on a macOS runner. This is the step that
+# needs Xcode, which is why it lives in Actions instead of on a Windows host.
+#
+# The prelink step additionally needs the target IPSW (about 7 GB). It runs only
+# when the workflow is started by hand with an ipsw input.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw:
+        description: 'IPSW URL or path to also prelink the kernel (optional)'
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'board.toml'
+      - 'configs/**'
+      - 'scripts/**'
+      - '.github/workflows/kernel.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    runs-on: macos-latest
+    timeout-minutes: 240
+    steps:
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Check out UniXNU
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          path: unixnu
+
+      - name: Install host tools
+        run: |
+          brew install cmake ninja unifdef dtc mtools llvm
+          echo "xcode: $(xcodebuild -version | head -1)"
+          echo "clang: $(clang --version | head -1)"
+
+      - name: Select the board configuration
+        working-directory: unixnu
+        run: ./unixnu defconfig caihong_defconfig -D ../device
+
+      - name: Fetch the pinned sources
+        working-directory: unixnu
+        run: ./unixnu fetch -D ../device
+
+      - name: Assemble the build tree
+        working-directory: unixnu
+        run: ./unixnu tree -D ../device
+
+      - name: Build the kernel
+        working-directory: unixnu
+        run: ./unixnu build kernel -D ../device -j "$(sysctl -n hw.ncpu)"
+
+      - name: Prelink against the IPSW
+        if: ${{ inputs.ipsw != '' }}
+        working-directory: unixnu
+        run: ./unixnu build prelink -D ../device --ipsw "${{ inputs.ipsw }}"
+
+      - name: Upload the kernel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel
+          if-no-files-found: warn
+          path: |
+            unixnu/out/caihong/kernel/**
+            unixnu/out/caihong/logs/**
+            unixnu/out/caihong/*.json
+          retention-days: 30
