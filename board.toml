@@ -50,6 +50,9 @@ defconfig = "caihong_defconfig"
 # ArmCpu are handled by the driver itself in this UniXNU version. The path is
 # resolved inside the tree's scripts/ directory, so no prefix here.
 archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "build-libpthread-kernel.py",
   "build-caihong-legacy-display.py",
 ]
 
