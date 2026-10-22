@@ -39,6 +39,9 @@ jobs:
         with:
           repository: UniXNU/UniXNU
           path: unixnu
+          # drivers/ are submodules; without them the kernel links without the
+          # display probes and fails on undefined symbols.
+          submodules: recursive
 
       - name: Install host tools
         run: |
