@@ -88,7 +88,12 @@ jobs:
         env:
           # Seeds XNU's IOPlatformUUID together with [payload.adt] chip_id.
           UNIXNU_UNIQUE_CHIP_ID: "0xCA12000000000001"
-        run: ./unixnu build payload -D ../device
+        run: |
+          # The restore ramdisk becomes the boot ramdisk, so the kernel has a
+          # minimal Apple userland (launchd) to mount as root.
+          ramdisk=$(ls out/ipsw/21H461/*.dmg | head -1)
+          hdiutil convert -format UDRW -o /tmp/root-ramdisk "$ramdisk"
+          ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.dmg
 
       - name: Upload the kernel
         if: always()
