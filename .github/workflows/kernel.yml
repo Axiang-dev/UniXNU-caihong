@@ -45,7 +45,7 @@ jobs:
 
       - name: Install host tools
         run: |
-          brew install cmake ninja unifdef dtc mtools llvm
+          brew install cmake ninja unifdef dtc mtools llvm lld
           echo "xcode: $(xcodebuild -version | head -1)"
           echo "clang: $(clang --version | head -1)"
 
