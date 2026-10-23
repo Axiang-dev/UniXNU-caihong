@@ -91,7 +91,8 @@ jobs:
         run: |
           # The restore ramdisk becomes the boot ramdisk, so the kernel has a
           # minimal Apple userland (launchd) to mount as root.
-          ramdisk=$(ls out/ipsw/21H461/*.dmg | head -1)
+          ./unixnu ipsw fetch RestoreRamDisk -D ../device
+          ramdisk=$(ls out/caihong/ipsw/21H461/*.dmg | head -1)
           hdiutil convert -format UDRW -o /tmp/root-ramdisk "$ramdisk"
           ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.dmg
 
