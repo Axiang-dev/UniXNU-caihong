@@ -81,6 +81,9 @@ jobs:
 
       - name: Build the payload
         working-directory: unixnu
+        env:
+          # Seeds XNU's IOPlatformUUID together with [payload.adt] chip_id.
+          UNIXNU_UNIQUE_CHIP_ID: "0xCA12000000000001"
         run: ./unixnu build payload -D ../device
 
       - name: Upload the kernel

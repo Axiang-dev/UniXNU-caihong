@@ -72,10 +72,20 @@ def main():
                    help='Match a published IOMedia volume UUID after UFS qualification')
     p.add_argument('--data-ramdisk', action='store_true',
                    help='Hand a dense APFS Data seed to the standard XNU RAMDisk path')
+    p.add_argument('--unique-chip-id', type=lambda v: int(v, 0), default=None,
+                   help='/chosen/unique-chip-id (8 bytes) and --chip-id (4 bytes) seed XNU IOPlatformUUID')
+    p.add_argument('--chip-id', type=lambda v: int(v, 0), default=None)
+    p.add_argument('--ipad-identity', action='store_true',
+                   help='Present the product node as an iPad Pro so XNU accepts the platform')
     args = p.parse_args()
 
-    if args.dram_size != 0x10000000 or args.owned_memory_size != 0x10000000:
-        p.error('First-entry profile requires a 256 MiB handoff window')
+    if (args.unique_chip_id is None) != (args.chip_id is None):
+        p.error('--unique-chip-id and --chip-id must be supplied together')
+    if args.unique_chip_id is not None and not (0 < args.unique_chip_id < 1 << 64 and 0 < args.chip_id < 1 << 32):
+        p.error('--unique-chip-id must fit 8 bytes and --chip-id 4 bytes, both nonzero')
+
+    if args.dram_size < 0x10000000 or args.owned_memory_size < 0x10000000:
+        p.error('The handoff window must be at least 256 MiB')
 
     u32 = lambda x: struct.pack('<I', x)
     u64 = lambda x: struct.pack('<Q', x)
@@ -91,6 +101,8 @@ def main():
                         ('dram-base', u64(DRAM_BASE)), ('dram-size', u64(args.dram_size)),
                         ('darwinboot-memory-size', u64(args.owned_memory_size)),
                         ('crypto-hash-method', b'sha2-384\0'),
+                        *([('unique-chip-id', u64(args.unique_chip_id)),
+                           ('chip-id', u32(args.chip_id))] if args.unique_chip_id is not None else []),
                         *([('root-matching', ('<dict><key>IOProviderClass</key><string>IOMedia</string>'
                            '<key>IOPropertyMatch</key><dict><key>UUID</key><string>' +
                            str(args.root_match_volume_uuid).upper() + '</string></dict></dict>\0').encode())]
@@ -103,7 +115,9 @@ def main():
              ('device_type', b'cpu\0'), ('compatible', b'qcom,kryo\0'),
              ('timebase-frequency', u32(TIMEBASE_FREQUENCY))])]),
         node('defaults', [('sleep-disabled', u32(1))]), node('options'),
-        node('product', [('product-name', b'OnePlus Pad Pro\0'), ('model', b'OPD2404\0')]),
+        node('product', [('product-name', b'iPad Pro (12.9-inch) (2nd generation)\0' if args.ipad_identity else b'OnePlus Pad Pro\0'),
+                         ('model', b'iPad7,1\0' if args.ipad_identity else b'OPD2404\0'),
+                         *([('target-type', b'J120\0')] if args.ipad_identity else [])]),
         node('arm-io', [('device_type', b'arm-io\0'), ('#address-cells', u32(2)),
                        ('#size-cells', u32(2)),
                        ('ranges', struct.pack('<QQQ', 0, 0x17000000, 0x08000000))],
