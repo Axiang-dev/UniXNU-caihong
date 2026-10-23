@@ -19,7 +19,7 @@ id = "xnu"
 title = "OnePlus Pad Pro - XNU"
 type = "xnu"
 path = "Payloads/kernel.macho"
-args = "-v serial=3"
+args = "-v serial=3 boot-progress=1 sheng-build-tag=caihong-001"
 enabled = true
 
 [[entry]]

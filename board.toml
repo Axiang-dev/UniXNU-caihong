@@ -55,6 +55,7 @@ archives = [
   "build-arm-driver.py ArmDTPlatform",
   "build-arm-driver.py ArmCpu",
   "build-libpthread-kernel.py",
+  "build-boot-progress.py",
 ]
 
 [kernel.prelink]
