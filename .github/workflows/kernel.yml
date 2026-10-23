@@ -79,16 +79,9 @@ jobs:
         working-directory: unixnu
         run: ./unixnu build prelink -D ../device --ipsw "${{ inputs.ipsw }}"
 
-      - name: Check out the firmware tree
-        uses: actions/checkout@v4
-        with:
-          repository: Axiang-dev/uefi-caihong
-          path: uefi
-          fetch-depth: 1
-
       - name: Build the payload
         working-directory: unixnu
-        run: ./unixnu build payload -D ../device --uefi ../uefi
+        run: ./unixnu build payload -D ../device
 
       - name: Upload the kernel
         if: always()
@@ -101,4 +94,4 @@ jobs:
             unixnu/out/caihong/payload/**
             unixnu/out/caihong/logs/**
             unixnu/out/caihong/*.json
-          retention-days: 30
+          retention-days: 3
