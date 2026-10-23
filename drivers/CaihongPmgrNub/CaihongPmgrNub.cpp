@@ -32,9 +32,9 @@ CaihongPMGRN::start (IOService *provider)
 
   // Values AMFI reads after the lookup. The PMGR always-on domain is reported as
   // latched so the check passes; nothing here touches hardware.
-  setProperty ("pmgr-aon", 1, 32);
-  setProperty ("pmgr-aon-latched", 1, 32);
-  setProperty ("pmgr-provider", "caihong", 32);
+  setProperty ("pmgr-aon", true);
+  setProperty ("pmgr-aon-latched", true);
+  setProperty ("pmgr-provider", "caihong");
 
   registerService ();
   IOLog ("CaihongPMGRN: PMGR stand-in registered\n");
