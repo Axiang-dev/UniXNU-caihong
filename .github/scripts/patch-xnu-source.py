@@ -14,6 +14,7 @@
 Usage: python3 patch-xnu-source.py <path-to-unixnu-checkout>
 """
 import pathlib
+import re
 import sys
 
 TOKEN_PATCH = '''import urllib.request
@@ -76,17 +77,42 @@ PERSONALITY_BLOCK = """#if defined(XNU_CAIHONG_PMGR_NUB) && XNU_CAIHONG_PMGR_NUB
 
 
 def patch_personality(root):
-    """Give the caihong PMGR stand-in a personality so IOKit starts it."""
+    """Give the caihong PMGR stand-in a personality so IOKit starts it.
+
+    The personality table is added by native-aes-personality.patch, so the block
+    has to be a valid diff: every added line needs a "+" prefix and the hunk
+    header's new-side count has to grow by the same number of lines.
+    """
     target = root / "patches" / "xnu" / "native-aes-personality.patch"
     source = target.read_text()
     if "CaihongPMGRN" in source:
         print(f"{target} already patched")
         return
+    lines = [
+        "+#if defined(XNU_CAIHONG_PMGR_NUB) && XNU_CAIHONG_PMGR_NUB",
+        "+    \"   ,{\"",
+        "+    \"     'IOClass'         = CaihongPMGRN;\"",
+        "+    \"     'IOProviderClass' = IOResources;\"",
+        "+    \"     'IOResourceMatch' = IOBSD;\"",
+        "+    \"     'IOProbeScore'    = 1000:32;\"",
+        "+    \"   }\"",
+        "+#endif",
+    ]
+    block = "\n".join(lines) + "\n"
     marker = '     ")";'
     if marker not in source:
         raise SystemExit(f"{target}: personality table end not found")
-    target.write_text(source.replace(marker, PERSONALITY_BLOCK + marker, 1))
-    print(f"patched {target}")
+    source = source.replace(marker, block + marker, 1)
+
+    headers = list(re.finditer(r"^@@ -(\d+),(\d+) \+(\d+),(\d+) @@", source, re.M))
+    if not headers:
+        raise SystemExit(f"{target}: no hunk header")
+    last = headers[-1]
+    fixed = "@@ -%s,%s +%s,%d @@" % (
+        last.group(1), last.group(2), last.group(3), int(last.group(4)) + len(lines))
+    source = source[:last.start()] + fixed + source[last.end():]
+    target.write_text(source)
+    print(f"patched {target} (+{len(lines)} lines)")
 
 
 def patch_personality_cflags(root):
