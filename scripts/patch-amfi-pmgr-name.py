@@ -41,6 +41,20 @@ PMGR_WRITE_ORIGINAL = (0xF9404400, 0xB4000080, 0xF9400008, 0xF9450502, 0xD61F004
 MOV_W0_0 = 0x52800000
 RET = 0xD65F03C0
 
+# When waitForMatchingService returns null AMFI jumps here and calls panic. Both
+# instructions are replaced with "return 0" and a branch to the function's own
+# epilogue, so the frame is unwound exactly as on the normal path.
+PMGR_CHECK_FAIL_VA = 0xFFFFFFF004AAECFC
+PMGR_CHECK_FAIL_ORIGINAL = (0xAA1503E0, 0xAA1503E1)   # mov x0,x21 ; mov x1,x21
+PMGR_CHECK_EPILOGUE_VA = 0xFFFFFFF004AAEC4C
+
+
+def branch(from_va, to_va):
+    delta = (to_va - from_va) // 4
+    if not -(1 << 25) <= delta < (1 << 25):
+        raise SystemExit("branch out of range")
+    return 0x14000000 | (delta & 0x3FFFFFF)
+
 
 def segments(data):
     magic, cpu, sub, kind, ncmds, _ = struct.unpack_from("<IiiIII", data, 0)
@@ -66,10 +80,13 @@ def file_offset(data, va):
 def patch_entry(data, va, expected, replacement):
     at = file_offset(data, va)
     actual = struct.unpack_from("<%dI" % len(expected), data, at)
+    if actual[:len(replacement)] == replacement:
+        return False
     if actual != expected:
         raise SystemExit(f"unexpected instructions at 0x{va:x}: {[hex(x) for x in actual]}")
     for index, word in enumerate(replacement):
         struct.pack_into("<I", data, at + index * 4, word)
+    return True
 
 
 def main():
@@ -91,6 +108,18 @@ def main():
             hits.append(index)
         start = index + 1
 
+    if not hits:
+        # A kernel that already carries the rename (a re-run on the same file).
+        if OURS in bytes(data) and CONTEXT in bytes(data):
+            print("AMFI PMGR lookup already renamed")
+            patch_entry(data, PMGR_READ_VA, PMGR_READ_ORIGINAL, (MOV_W0_0, RET))
+            patch_entry(data, PMGR_WRITE_VA, PMGR_WRITE_ORIGINAL, (RET,))
+            patch_entry(data, PMGR_CHECK_FAIL_VA, PMGR_CHECK_FAIL_ORIGINAL,
+                        (MOV_W0_0, branch(PMGR_CHECK_FAIL_VA + 4, PMGR_CHECK_EPILOGUE_VA)))
+            path.write_bytes(data)
+            print("PMGR read/write inert, AMFI check returns 0")
+            return
+        raise SystemExit("no AMFI PMGR lookup string found")
     if len(hits) != 1:
         raise SystemExit(f"expected exactly one AMFI lookup string, found {len(hits)}")
 
@@ -102,6 +131,10 @@ def main():
     print(f"PMGR read at 0x{PMGR_READ_VA:x} now returns 0")
     patch_entry(data, PMGR_WRITE_VA, PMGR_WRITE_ORIGINAL, (RET,))
     print(f"PMGR write at 0x{PMGR_WRITE_VA:x} now does nothing")
+
+    patch_entry(data, PMGR_CHECK_FAIL_VA, PMGR_CHECK_FAIL_ORIGINAL,
+                (MOV_W0_0, branch(PMGR_CHECK_FAIL_VA + 4, PMGR_CHECK_EPILOGUE_VA)))
+    print(f"AMFI PMGR check at 0x{PMGR_CHECK_FAIL_VA:x} now returns 0 instead of panicking")
 
     path.write_bytes(data)
 
