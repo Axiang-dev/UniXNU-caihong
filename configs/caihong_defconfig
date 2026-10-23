@@ -21,7 +21,7 @@ CONFIG_XNU_NATIVE_RAM_BLOCK=n
 # from bsd_init without a config guard. CI rewrites that call out of the patch
 # (see .github/scripts/patch-xnu-source.py) instead of building a display
 # backend this port does not have yet.
-CONFIG_XNU_BOOT_PROGRESS=y
+CONFIG_XNU_BOOT_PROGRESS=n
 CONFIG_XNU_BUILD_ARCHIVES=y
 CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
