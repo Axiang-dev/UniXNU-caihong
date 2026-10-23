@@ -64,10 +64,60 @@ def patch_probe(root):
     print(f"patched {target}")
 
 
+PERSONALITY_BLOCK = """#if defined(XNU_CAIHONG_PMGR_NUB) && XNU_CAIHONG_PMGR_NUB
+    "   ,{"
+    "     'IOClass'         = CaihongPMGRN;"
+    "     'IOProviderClass' = IOResources;"
+    "     'IOResourceMatch' = IOBSD;"
+    "     'IOProbeScore'    = 1000:32;"
+    "   }"
+#endif
+"""
+
+
+def patch_personality(root):
+    """Give the caihong PMGR stand-in a personality so IOKit starts it."""
+    target = root / "patches" / "xnu" / "native-aes-personality.patch"
+    source = target.read_text()
+    if "CaihongPMGRN" in source:
+        print(f"{target} already patched")
+        return
+    marker = '     ")";'
+    if marker not in source:
+        raise SystemExit(f"{target}: personality table end not found")
+    target.write_text(source.replace(marker, PERSONALITY_BLOCK + marker, 1))
+    print(f"patched {target}")
+
+
+def patch_personality_cflags(root):
+    """Compile the personality only when the board enables it."""
+    target = root / "scripts" / "build-xnu-4k-baseline.sh"
+    source = target.read_text()
+    if "XNU_CAIHONG_PMGR_NUB" in source:
+        print(f"{target} already patched")
+        return
+    marker = 'EXTRA_MAKE_ARGS+=("KernelConfigTables.cpo_CFLAGS_ADD=$PERSONALITY_CFLAGS")'
+    if marker not in source:
+        raise SystemExit(f"{target}: PERSONALITY_CFLAGS line not found")
+    source = source.replace(
+        marker,
+        'PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_CAIHONG_PMGR_NUB=1"\n' + marker, 1)
+    link_marker = '  KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES ${XNU_EXTRA_LD_ARCHIVES:-}"'
+    if link_marker not in source:
+        raise SystemExit(f"{target}: KERNEL_EXTRA_ARCHIVES line not found")
+    source = source.replace(
+        link_marker,
+        '  KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ROOT/build/caihong-pmgr-nub/libCaihongPmgrNub.a"\n' + link_marker, 1)
+    target.write_text(source)
+    print(f"patched {target}")
+
+
 def main():
     root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "unixnu")
     patch_source(root)
     patch_probe(root)
+    patch_personality(root)
+    patch_personality_cflags(root)
 
 
 if __name__ == "__main__":

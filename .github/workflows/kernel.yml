@@ -79,6 +79,10 @@ jobs:
         working-directory: unixnu
         run: ./unixnu build prelink -D ../device --ipsw "${{ inputs.ipsw }}"
 
+      - name: Point AMFI at the board PMGR stand-in
+        working-directory: unixnu
+        run: python3 ../device/scripts/patch-amfi-pmgr-name.py out/caihong/kernel/kernel.macho
+
       - name: Build the payload
         working-directory: unixnu
         env:
