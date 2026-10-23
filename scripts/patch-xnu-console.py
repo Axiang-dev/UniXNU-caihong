@@ -60,16 +60,14 @@ def find_cave(data, near_va):
 
 
 def assemble(source, va, workdir, vinfo_va):
-    clang = shutil.which("clang")
-    lld = shutil.which("ld.lld")
-    objcopy = shutil.which("llvm-objcopy")
-    nm = shutil.which("llvm-nm")
-    size = shutil.which("llvm-size")
-    objdump = shutil.which("llvm-objdump")
-    for tool, name in ((clang, "clang"), (lld, "ld.lld"), (objcopy, "llvm-objcopy"),
-                       (nm, "llvm-nm"), (size, "llvm-size"), (objdump, "llvm-objdump")):
-        if not tool:
-            raise SystemExit(f"{name} is required")
+    brew = "/opt/homebrew/opt/llvm/bin"
+    tools = {}
+    for name in ("clang", "ld.lld", "llvm-objcopy", "llvm-nm", "llvm-size", "llvm-objdump"):
+        tools[name] = shutil.which(name) or f"{brew}/{name}"
+        if not Path(tools[name]).exists():
+            raise SystemExit(f"{name} is required (looked in PATH and {brew})")
+    clang, lld, objcopy, nm, size, objdump = (tools[n] for n in
+        ("clang", "ld.lld", "llvm-objcopy", "llvm-nm", "llvm-size", "llvm-objdump"))
 
     font_dir = ROOT / "scripts" / "fbconsole"
     obj, elf, binary = (workdir / n for n in ("console.o", "console.elf", "console.bin"))
