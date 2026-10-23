@@ -81,7 +81,10 @@ jobs:
 
       - name: Point AMFI at the board PMGR stand-in
         working-directory: unixnu
-        run: python3 ../device/scripts/patch-amfi-pmgr-name.py out/caihong/kernel/kernel.macho
+        run: |
+          python3 ../device/scripts/patch-amfi-pmgr-name.py out/caihong/kernel/kernel.macho
+          # Must precede the entry probe: it verifies the untouched entry sequence.
+          python3 ../device/scripts/patch-xnu-console.py out/caihong/kernel/kernel.macho
 
       - name: Build the payload
         working-directory: unixnu
@@ -99,7 +102,12 @@ jobs:
           # which is exactly what the kernel mounts.
           python3 ../device/scripts/unwrap-img4.py "$ramdisk" /tmp/root-ramdisk.img
           ls -la /tmp/root-ramdisk.img
-          ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.img
+          # AMFI only runs binaries that are in the trust cache; without it the
+          # kernel kills launchd with a codesigning SIGKILL right after exec.
+          trust=$(./unixnu ipsw fetch RestoreTrustCache -D ../device | tail -1)
+          echo "restore trust cache: $trust"
+          test -f "$trust"
+          ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.img --trust-cache "$trust"
 
       - name: Upload the kernel
         if: always()
