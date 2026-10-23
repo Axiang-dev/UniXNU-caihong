@@ -46,8 +46,16 @@ windows = [
 
 [kernel]
 defconfig = "caihong_defconfig"
-# No device archives: the driver builds corecrypto, libpthread, ArmDTPlatform
-# and ArmCpu itself, and the display probe call is patched out in CI.
+# Archive builders of the kernel step, in order. Each is a script of the build
+# tree with its arguments; build-arm-driver.py compiles a driver from drivers/
+# against the ABI recorded by the bootstrap pass.
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "build-arm-driver.py ArmDTPlatform",
+  "build-arm-driver.py ArmCpu",
+  "build-libpthread-kernel.py",
+]
 
 [kernel.prelink]
 tool = "kits/NativePrelink/emit_prelink.py"
