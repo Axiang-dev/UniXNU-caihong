@@ -137,10 +137,10 @@ kernel_args = ["-v", "serial=3"]
 [payload.adt]
 tool = "scripts/make-caihong-adt.py"
 chip_id = "0x207"
-owned_memory_size = "0x40000000"
+owned_memory_size = "0x80000000"
 cpu_regs = "0"
 psci_method = "smc"
-packed_data_ramdisk = true
+packed_data_ramdisk = false
 ipad_identity = true
 # The ADT tool for this port does not emit a platform seed yet; the
 # Data volume encryption path is not part of the first entry.
