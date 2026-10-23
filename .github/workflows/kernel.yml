@@ -95,9 +95,11 @@ jobs:
           ramdisk=$(./unixnu ipsw fetch RestoreRamDisk -D ../device | tail -1)
           echo "restore ramdisk: $ramdisk"
           test -f "$ramdisk"
-          hdiutil convert -format UDRW -o /tmp/root-ramdisk "$ramdisk"
-          ls -la /tmp/root-ramdisk.dmg
-          ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.dmg
+          # The member is IM4P-wrapped; the payload inside is a raw APFS image,
+          # which is exactly what the kernel mounts.
+          python3 ../device/scripts/unwrap-img4.py "$ramdisk" /tmp/root-ramdisk.img
+          ls -la /tmp/root-ramdisk.img
+          ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.img
 
       - name: Upload the kernel
         if: always()

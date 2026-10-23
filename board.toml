@@ -126,7 +126,7 @@ header_version = 4
 
 [payload]
 volume = "CAIHONGESP"              # FAT label, at most 11 characters
-size_mib = 1024
+size_mib = 384
 loader = "firmware"                # DarwinBoot lives in the firmware volume
 title = "OnePlus Pad Pro (caihong)"
 dram_size = "0x80000000"           # handoff window, not installed RAM
