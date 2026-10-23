@@ -137,4 +137,6 @@ cpu_regs = "0"
 psci_method = "smc"
 packed_data_ramdisk = true
 ipad_identity = true
-unique_chip_id = "required"
+# The ADT tool for this port does not emit a platform seed yet; the
+# Data volume encryption path is not part of the first entry.
+unique_chip_id = "none"
