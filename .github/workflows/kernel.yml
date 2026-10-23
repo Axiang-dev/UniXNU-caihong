@@ -79,6 +79,10 @@ jobs:
         working-directory: unixnu
         run: ./unixnu build prelink -D ../device --ipsw "${{ inputs.ipsw }}"
 
+      - name: Build the payload
+        working-directory: unixnu
+        run: ./unixnu build payload -D ../device
+
       - name: Upload the kernel
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,6 +91,7 @@ jobs:
           if-no-files-found: warn
           path: |
             unixnu/out/caihong/kernel/**
+            unixnu/out/caihong/payload/**
             unixnu/out/caihong/logs/**
             unixnu/out/caihong/*.json
           retention-days: 30

@@ -124,7 +124,7 @@ volume = "CAIHONGESP"              # FAT label, at most 11 characters
 size_mib = 192
 loader = "firmware"                # DarwinBoot lives in the firmware volume
 title = "OnePlus Pad Pro (caihong)"
-dram_size = "0x10000000"           # handoff window, not installed RAM
+dram_size = "0x80000000"           # handoff window, not installed RAM
 panic_screen = true
 timeout = 3
 kernel_args = ["-v", "serial=3"]
@@ -132,7 +132,7 @@ kernel_args = ["-v", "serial=3"]
 [payload.adt]
 tool = "scripts/make-caihong-adt.py"
 chip_id = "0"
-owned_memory_size = "0x10000000"
+owned_memory_size = "0x40000000"
 cpu_regs = "0"
 psci_method = "smc"
 packed_data_ramdisk = true
