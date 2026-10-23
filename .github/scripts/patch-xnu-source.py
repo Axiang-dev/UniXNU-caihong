@@ -92,9 +92,8 @@ def patch_personality(root):
         "+#if defined(XNU_CAIHONG_PMGR_NUB) && XNU_CAIHONG_PMGR_NUB",
         "+    \"   ,{\"",
         "+    \"     'IOClass'         = CaihongPMGRN;\"",
-        "+    \"     'IOProviderClass' = IOResources;\"",
-        "+    \"     'IOResourceMatch' = IOBSD;\"",
-        "+    \"     'IOProbeScore'    = 1000:32;\"",
+        "+    \"     'IOProviderClass' = IOPlatformExpertDevice;\"",
+        "+    \"     'IOProbeScore'    = 5000:32;\"",
         "+    \"   }\"",
         "+#endif",
     ]
