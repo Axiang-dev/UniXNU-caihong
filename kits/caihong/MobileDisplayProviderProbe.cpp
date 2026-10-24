@@ -33,14 +33,17 @@ void native_mobile_display_provider_probe(void) {
     // Only our object's initializer section is deferred; original bytes stay
     // unchanged. Normal standalone kext loading would initialize dependencies.
     native_mobile_provider_stage = 1;
+    printf("XNU display: stage 1, preModLoad(%s)\n", g_kernel_kmod_info.name);
     void *handle = OSMetaClass::preModLoad(g_kernel_kmod_info.name);
-    if (!handle) { native_mobile_display_provider_checkpoint(); return; }
+    if (!handle) { printf("XNU display: preModLoad refused\n"); native_mobile_display_provider_checkpoint(); return; }
     native_mobile_display_static_init();
     native_mobile_provider_meta_status = OSMetaClass::postModLoad(handle);
+    printf("XNU display: stage 2, postModLoad=%d\n", native_mobile_provider_meta_status);
     if (native_mobile_provider_meta_status) { native_mobile_display_provider_checkpoint(); return; }
     native_mobile_provider_stage = 2;
     IOService *provider = native_mobile_display_create();
     native_mobile_provider_object = (uintptr_t)provider;
+    printf("XNU display: stage 3, provider=%p\n", provider);
     if (!provider) { native_mobile_display_provider_checkpoint(); return; }
     native_mobile_provider_parent_match = provider->metaCast("IOMobileFramebuffer") != nullptr;
     PE_Video video = {};
@@ -60,6 +63,10 @@ void native_mobile_display_provider_probe(void) {
         arguments.scalarOutput = values;
         arguments.scalarOutputCount = 2;
         native_mobile_provider_query_status = client->externalMethod(8,&arguments,nullptr,nullptr,nullptr);
+        printf("XNU display: stage 4, query=%d dimensions=%llux%llu (console %llux%llu)\n",
+               native_mobile_provider_query_status,
+               native_mobile_provider_dimensions[0], native_mobile_provider_dimensions[1],
+               native_mobile_provider_expected[0], native_mobile_provider_expected[1]);
         native_mobile_provider_dimensions[0] = values[0];
         native_mobile_provider_dimensions[1] = values[1];
         native_mobile_provider_stage = 5;
@@ -69,6 +76,7 @@ void native_mobile_display_provider_probe(void) {
     if (client) client->release();
     provider->release();
     native_mobile_provider_released = 1;
+    printf("XNU display: stage 5, released, attached=%d started=%d\n", (int)attached, (int)started);
     native_mobile_display_provider_checkpoint();
 }
 }
