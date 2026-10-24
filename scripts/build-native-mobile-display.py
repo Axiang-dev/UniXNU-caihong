@@ -153,6 +153,39 @@ def check_candidate(candidate):
     print('display: candidate carries the expected IOMobileFramebuffer layout')
 
 
+def compile_probe():
+    """Build the provider probe with the kernel's own flags for this tree.
+
+    The probe includes kernel headers, so it is compiled with the argument list
+    the kernel build recorded for IOPlatformExpert, with only the source and the
+    output swapped.
+    """
+    recipe = ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json'
+    if not recipe.is_file():
+        fail(f'no compile recipe to borrow: {recipe}')
+    record = json.loads(recipe.read_text().strip().rstrip(','))
+    command, skip = [], False
+    for argument in record['arguments']:
+        if skip:
+            skip = False
+            continue
+        if argument == record['file']:
+            command.append(str(ROOT / 'kits/caihong/MobileDisplayProviderProbe.cpp'))
+        elif argument == '-o':
+            command.extend(['-o', str(OUT / 'MobileDisplayProviderProbe.o')])
+            skip = True
+        elif argument == '-Xclang' or argument.startswith('-W'):
+            continue
+        else:
+            command.append(argument)
+    command += ['-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
+                '-Wno-unnecessary-virtual-specifier', '-Wno-c99-designator',
+                '-Wno-reorder-init-list', '-Wno-deprecated-enum-enum-conversion',
+                '-I', str(ROOT / '.cache/xnu-work/osfmk')]
+    run(command, cwd=record['directory'])
+    return OUT / 'MobileDisplayProviderProbe.o'
+
+
 def build_archive():
     OUT.mkdir(parents=True, exist_ok=True)
     print('display: compile NativeMobileDisplay')
@@ -180,9 +213,10 @@ def build_archive():
     run([llvm / 'llvm-objcopy', '--remove-section=__DATA,__mod_init_func',
          '--globalize-symbol=__GLOBAL__sub_I_NativeMobileDisplay.cpp', obj, late])
 
+    probe = compile_probe()
     archive = OUT / 'libNativeMobileDisplay.late.a'
     archive.unlink(missing_ok=True)
-    run(['xcrun', 'ar', 'rcs', archive, late, OUT / 'original-bindings.o'])
+    run(['xcrun', 'ar', 'rcs', archive, late, OUT / 'original-bindings.o', probe])
     return archive
 
 
