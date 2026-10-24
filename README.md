@@ -162,7 +162,7 @@ payload 必须独占 userdata；若要上完整 OS 根卷，需要先把 payload
 
 ## 固件集成（已完成，保留作为参考）
 
-参考 `tycykp/UniXNU-OnePlus-Ace5` 的 `patches/giulia-unixnu.patch`，共 8 处改动：
+参考项目 `tycykp/UniXNU-OnePlus-Ace5` 里的 `patches/giulia-unixnu.patch`（**那是另一个仓库的文件，不在本仓库**），共 8 处改动：
 
 1. `Platforms/OnePlus/caihongPkg/DeviceBuild.py`：`PackagesPath` 加
    `"UniXNU/package"` 和 `"UniXNU/drivers/DarwinBoot"`（必须在前两行）
