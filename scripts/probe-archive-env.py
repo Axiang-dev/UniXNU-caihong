@@ -25,13 +25,15 @@ for label, pattern in (
     path = ROOT / pattern
     lines.append(f'  {label:18s} {pattern} -> {"yes" if path.exists() else "NO"}')
 
-lines.append('  ipsw kernelcache candidates:')
-for base in ('out', '../out', '/tmp'):
-    directory = (ROOT / base)
-    if not directory.is_dir():
-        continue
-    for hit in sorted(directory.glob('ipsw/**/kernelcache*'))[:6]:
-        lines.append(f'    {hit}  {hit.stat().st_size} bytes')
+lines.append('  kernelcache search:')
+for pattern in ('.cache/**/kernelcache*', '**/kernelcache.decompressed', 'refer/**/*.decompressed',
+                '.cache/**/*.ipsw', 'build/**/kernelcache*'):
+    for hit in sorted(ROOT.glob(pattern))[:8]:
+        lines.append(f'    {pattern}: {hit.relative_to(ROOT)}  {hit.stat().st_size} bytes')
+for base in ('.cache', 'refer'):
+    directory = ROOT / base
+    if directory.is_dir():
+        lines.append(f'  {base}/: ' + ', '.join(sorted(p.name for p in directory.iterdir())[:12]))
 
 lines.append('  top-level entries: ' + ', '.join(sorted(p.name for p in ROOT.iterdir()))[:400])
 lines.append('  env: ' + str({k: v for k, v in os.environ.items() if k.startswith('UNIXNU') or k.startswith('XNU_')}))
