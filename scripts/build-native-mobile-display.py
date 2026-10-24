@@ -100,10 +100,18 @@ def kernelcache():
         fail('cannot find the unixnu driver package to read the IPSW')
     from unixnu import ipsw as ipsw_mod
 
-    class Board:
-        board = {'kernel': {'prelink': {'kernelcache_sha256': KERNELCACHE_SHA256}}}
+    class Context:
+        """Just enough of the driver's context for its IPSW reader."""
+        board = {
+            'ipsw': {
+                'url': IPSW_URL, 'product': 'iPad7,1', 'version': '17.7.11', 'build': '21H461',
+                'device_class': 'j120ap', 'chip_id': 0x8011, 'board_id': 12,
+            },
+            'kernel': {'prelink': {'kernelcache_sha256': KERNELCACHE_SHA256}},
+        }
+        out_root = ROOT.parent
 
-    source = ipsw_mod.Ipsw(IPSW_URL)
+    source = ipsw_mod.Ipsw(Context(), IPSW_URL)
     path = ipsw_mod.kernelcache(Board(), source)
     print(f'display: kernelcache {path} {path.stat().st_size} bytes')
     return path
