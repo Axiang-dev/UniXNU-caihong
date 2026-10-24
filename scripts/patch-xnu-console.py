@@ -46,16 +46,22 @@ def text_segments(data):
 
 
 def find_cave(data, near_va):
-    """A zero run big enough for the console code, in an executable segment."""
+    """A zero run big enough for the console code, taken from the END of a text segment.
+
+    Scanning from the start would claim the padding the entry probe keeps for its
+    own stage code and the panic screen, so search backwards: the tail padding of
+    a segment is the safe place.
+    """
     segments = text_segments(data)
     order = [seg for seg in segments if seg[0] <= near_va < seg[0] + seg[1]]
     order += [seg for seg in segments if seg not in order]
     for base, filesize, offset, name in order:
-        at = 0
-        while at + CAVE_MIN <= filesize:
+        at = filesize - CAVE_MIN
+        while at >= 0:
+            at &= ~(CAVE_ALIGN - 1)
             if data[offset + at:offset + at + CAVE_MIN] == bytes(CAVE_MIN):
                 return base + at
-            at += CAVE_ALIGN
+            at -= CAVE_ALIGN
     raise SystemExit(f"no {CAVE_MIN:#x} byte zero run in an executable segment")
 
 
