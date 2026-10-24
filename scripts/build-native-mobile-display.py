@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Build the mobile display provider for caihong.
+
+The provider is the original IOMobileFramebuffer class with its constructor,
+destructor and dispatch entry points redirected at our own NativeMobileDisplay.
+Producing it needs two things an ordinary archive builder does not have:
+
+* a prelinked image of the ORIGINAL kexts, so the class can be located. Kext
+  symbols are stripped from the prelinked kernel, so the class is found by the
+  fixed addresses the reference port qualified, and those addresses only hold if
+  the same kernelcache and the same kext placement are used. They are, because
+  this board pins the same kernelcache as the reference port.
+* that image has to exist before the kernel links, so this builder makes one
+  itself: prelink the bootstrap kernel against the IPSW kernelcache.
+
+Runs as an archive builder (cwd is the build tree, before the final link).
+"""
+import hashlib
+import json
+import os
+import pathlib
+import struct
+import subprocess
+import sys
+
+ROOT = pathlib.Path.cwd()
+OUT = ROOT / 'build' / 'native-mobile-display'
+CANDIDATE = ROOT / 'build' / 'native-prelink' / 'native-owner-mobile-graphics-candidate.macho'
+KERNEL = ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf'
+EMIT = ROOT / 'kits/NativePrelink/emit_prelink.py'
+
+# From board.toml [ipsw] and [kernel.prelink]. The tree does not carry board.toml.
+IPSW_URL = ('https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/'
+            'DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw')
+KERNELCACHE_SHA256 = 'f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7'
+SLIDE = '-0x1000000'
+ROOTS = [
+    'com.apple.AppleFSCompression.AppleFSCompressionTypeZlib',
+    'com.apple.driver.AppleARMPlatform',
+    'com.apple.driver.AppleARMWatchdogTimer',
+    'com.apple.driver.AppleAudioClockLibs',
+    'com.apple.driver.AppleEffaceableStorage',
+    'com.apple.driver.AppleIISController',
+    'com.apple.driver.AppleM2ScalerCSCDriver',
+    'com.apple.driver.AppleMobileFileIntegrity',
+    'com.apple.driver.ApplePMGR',
+    'com.apple.driver.IODARTFamily',
+    'com.apple.filesystems.apfs',
+    'com.apple.iokit.CoreAnalyticsFamily',
+    'com.apple.iokit.IOAVFamily',
+    'com.apple.iokit.IOAudio2Family',
+    'com.apple.iokit.IOCECFamily',
+    'com.apple.iokit.IOCryptoAcceleratorFamily',
+    'com.apple.iokit.IOGPUFamily',
+    'com.apple.iokit.IOHDCPFamily',
+    'com.apple.iokit.IOMobileGraphicsFamily',
+    'com.apple.iokit.IOReportFamily',
+    'com.apple.iokit.IOSlowAdaptiveClockingFamily',
+    'com.apple.iokit.IOStorageFamily',
+    'com.apple.iokit.IOSurface',
+    'com.apple.kec.Libm',
+    'com.apple.kec.corecrypto',
+    'com.apple.kext.AppleMatch',
+    'com.apple.kext.CoreTrust',
+    'com.apple.security.AppleImage4',
+    'com.apple.security.sandbox',
+    'com.apple.iokit.IOHIDFamily',
+    'com.apple.iokit.IOHIDEventDriver',
+]
+
+# Verified against this board's prelinked image: the reference port's addresses
+# still hold, because the kext placement is deterministic for a given kernelcache.
+IOMFB_C2 = 0xfffffff00577b318
+IOMFB_D2 = 0xfffffff00577b364
+IOMFB_METACLASS = 0xfffffff006b313d8
+IOMFB_TEXT = (0xfffffff00576c000, 0xfffffff00576c000 + 0x36f74)
+
+
+def run(cmd, **kw):
+    return subprocess.check_output([str(x) for x in cmd], timeout=1800, **kw)
+
+
+def sha(path):
+    return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+
+def fail(message):
+    print(f'display: {message}')
+    raise SystemExit(message)
+
+
+def kernelcache():
+    """The decompressed arm64 kernelcache, via the driver's own IPSW reader."""
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    from unixnu import ipsw as ipsw_mod
+
+    class Board:
+        board = {'kernel': {'prelink': {'kernelcache_sha256': KERNELCACHE_SHA256}}}
+
+    source = ipsw_mod.Ipsw(IPSW_URL)
+    path = ipsw_mod.kernelcache(Board(), source)
+    print(f'display: kernelcache {path} {path.stat().st_size} bytes')
+    return path
+
+
+def make_candidate(cache):
+    CANDIDATE.parent.mkdir(parents=True, exist_ok=True)
+    if CANDIDATE.is_file():
+        CANDIDATE.unlink()
+    command = [sys.executable, EMIT, '--kernel', KERNEL, '--prelinked', cache,
+               '--slide', SLIDE, '--output', CANDIDATE]
+    for root in ROOTS:
+        command += ['--root', root]
+    print('display: prelink candidate')
+    run(command, text=True)
+    print(f'display: candidate {sha(CANDIDATE)}')
+    return CANDIDATE
+
+
+def check_candidate(candidate):
+    """The addresses are only usable if the class really sits where the port expects."""
+    data = candidate.read_bytes()
+    sys.path.insert(0, str(ROOT / 'kits/NativePrelink'))
+    from native_prelink import macho, backed_offset
+
+    segments = macho(data)['segments']
+
+    def read(va, size):
+        at = backed_offset(segments, va, size, len(data))
+        return data[at:at + size]
+
+    first = struct.unpack('<I', read(IOMFB_C2, 4))[0]
+    if first & 0x7f800000 != 0xd1000000:      # sub sp, sp, #imm
+        fail(f'IOMobileFramebuffer C2 at {IOMFB_C2:#x} does not start with a frame setup ({first:#010x})')
+    for site, label in ((IOMFB_C2, 'C2'), (IOMFB_D2, 'D2')):
+        word = struct.unpack('<I', read(site + 0x30 if label == 'C2' else site + 0x18, 4))[0]
+        if word >> 26 != 0b100101:
+            fail(f'the constructor/destructor call inside {label} is not a bl ({word:#010x})')
+    print('display: candidate carries the expected IOMobileFramebuffer layout')
+
+
+def build_archive():
+    OUT.mkdir(parents=True, exist_ok=True)
+    print('display: compile NativeMobileDisplay')
+    run([sys.executable, ROOT / 'scripts/build-arm-driver.py', 'NativeMobileDisplay'], text=True)
+
+    obj = OUT / 'NativeMobileDisplay.o'
+    if not obj.is_file():
+        fail(f'{obj} was not produced')
+
+    # The three symbols the driver imports from the original family. They are
+    # bound to the addresses the original image uses, which is why the class has
+    # to be located first.
+    asm = OUT / 'original-bindings.S'
+    asm.write_text(''.join(f'.globl {name}\n.set {name}, {value:#x}\n' for name, value in (
+        ('__ZN19IOMobileFramebufferC2EPK11OSMetaClass', IOMFB_C2),
+        ('__ZN19IOMobileFramebufferD2Ev', IOMFB_D2),
+        ('__ZN19IOMobileFramebuffer10gMetaClassE', IOMFB_METACLASS),
+    )))
+    sdk = run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+    run(['xcrun', 'clang', '-target', 'arm64-apple-ios17.0', '-isysroot', sdk, '-Werror',
+         '-c', asm, '-o', OUT / 'original-bindings.o'])
+
+    llvm = pathlib.Path(run(['brew', '--prefix', 'llvm'], text=True).strip()) / 'bin'
+    late = OUT / 'NativeMobileDisplay.late.o'
+    run([llvm / 'llvm-objcopy', '--remove-section=__DATA,__mod_init_func',
+         '--globalize-symbol=__GLOBAL__sub_I_NativeMobileDisplay.cpp', obj, late])
+
+    archive = OUT / 'libNativeMobileDisplay.late.a'
+    archive.unlink(missing_ok=True)
+    run(['xcrun', 'ar', 'rcs', archive, late, OUT / 'original-bindings.o'])
+    return archive
+
+
+def report(archive, candidate):
+    sources = sorted({p.name for p in OUT.iterdir() if p.is_file()})
+    document = {
+        'kit_revision': subprocess.check_output(
+            ['git', '-C', str(ROOT / 'drivers/NativeMobileDisplay'), 'rev-parse', 'HEAD'],
+            text=True).strip(),
+        'archive_sha256': sha(archive),
+        'candidate_sha256': sha(candidate),
+        'source_sha256': {f'drivers/NativeMobileDisplay/{name}': sha(ROOT / 'drivers/NativeMobileDisplay' / name)
+                          for name in ('NativeMobileDisplay.cpp', 'OriginalMobileFramebufferABI.h')
+                          if (ROOT / 'drivers/NativeMobileDisplay' / name).is_file()},
+        'objects': sources,
+        'addresses': {'c2': IOMFB_C2, 'd2': IOMFB_D2, 'metaclass': IOMFB_METACLASS},
+    }
+    (OUT / 'build-report.json').write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
+    print(f'display: {archive} {archive.stat().st_size} bytes')
+
+
+def main():
+    if not KERNEL.is_file():
+        fail(f'the bootstrap kernel is missing: {KERNEL}')
+    if not EMIT.is_file():
+        fail(f'{EMIT} is missing')
+    cache = kernelcache()
+    candidate = make_candidate(cache)
+    check_candidate(candidate)
+    archive = build_archive()
+    report(archive, candidate)
+
+
+if __name__ == '__main__':
+    main()
