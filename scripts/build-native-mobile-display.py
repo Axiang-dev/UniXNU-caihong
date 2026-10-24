@@ -91,7 +91,13 @@ def fail(message):
 
 def kernelcache():
     """The decompressed arm64 kernelcache, via the driver's own IPSW reader."""
-    sys.path.insert(0, str(ROOT / 'scripts'))
+    # The tree carries the device scripts; the driver package lives above it.
+    for candidate in (ROOT.parents[2] / 'scripts', ROOT.parent / 'scripts', ROOT / 'scripts'):
+        if (candidate / 'unixnu' / 'ipsw.py').is_file():
+            sys.path.insert(0, str(candidate))
+            break
+    else:
+        fail('cannot find the unixnu driver package to read the IPSW')
     from unixnu import ipsw as ipsw_mod
 
     class Board:
