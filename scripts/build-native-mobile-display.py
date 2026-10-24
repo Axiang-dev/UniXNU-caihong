@@ -112,7 +112,7 @@ def kernelcache():
         out_root = ROOT.parent
 
     source = ipsw_mod.Ipsw(Context(), IPSW_URL)
-    path = ipsw_mod.kernelcache(Board(), source)
+    path = ipsw_mod.kernelcache(Context(), source)
     print(f'display: kernelcache {path} {path.stat().st_size} bytes')
     return path
 
