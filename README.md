@@ -130,6 +130,7 @@ mov x0, x21 ; mov x1, x21 ; bl panic
 | `scripts/patch-amfi-pmgr-name.py` | AMFI PMGR 检查 patch |
 | `scripts/xnu-console.c` + `scripts/patch-xnu-console.py` | 内核日志上屏 + 心跳 |
 | `.github/workflows/kernel.yml` | CI：拉 IPSW 组件、编内核、打 payload、上传 artifact |
+| `uefi-overlay/` | Mu-Silicium 侧的改动（驱动、fdf、DTB、UniXNU Main.c），按路径覆盖即可 |
 
 ## 构建
 

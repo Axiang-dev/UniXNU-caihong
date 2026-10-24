@@ -1,0 +1,42 @@
+## @file
+#  Read-only block device over the UniXNU payload (ramdisk or firmware volume).
+#
+#  Copyright (c) 2026, caihong port contributors. All rights reserved.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001B
+  BASE_NAME      = CaihongInitrdDxe
+  FILE_GUID      = 5F3C9A21-7B48-4E6D-9A13-2C6E5B8D4F07
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = CaihongInitrdDxeEntry
+
+[Sources]
+  CaihongInitrdDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  FdtLib
+  HobLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gSiliciumEntryArgHobGuid
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiFirmwareVolume2ProtocolGuid
+
+[Depex]
+  TRUE
