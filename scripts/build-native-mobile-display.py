@@ -77,7 +77,13 @@ IOMFB_TEXT = (0xfffffff00576c000, 0xfffffff00576c000 + 0x36f74)
 
 
 def run(cmd, **kw):
-    return subprocess.check_output([str(x) for x in cmd], timeout=1800, **kw)
+    """Run and surface the child's output when it fails; the CI log is the only view."""
+    result = subprocess.run([str(x) for x in cmd], capture_output=True, text=True, timeout=1800, **kw)
+    if result.returncode:
+        print((result.stdout or '')[-4000:])
+        print((result.stderr or '')[-4000:])
+        raise SystemExit(f'command failed ({result.returncode}): {" ".join(str(x) for x in cmd[:3])} ...')
+    return result.stdout
 
 
 def sha(path):
