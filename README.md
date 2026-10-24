@@ -154,7 +154,7 @@ python build_uefi.py -d caihong -m 0 -r RELEASE   # → Mu-caihong-0.img
 ## 刷入
 
 ```sh
-fastboot flash userdata payload.img      # payload FAT 卷（当前 252 MiB）
+fastboot flash userdata payload.img      # payload FAT 卷，大小见 board.toml 的 size_mib
 fastboot boot Mu-caihong-0.img           # 固件
 ```
 
