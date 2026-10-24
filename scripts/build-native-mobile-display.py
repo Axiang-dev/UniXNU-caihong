@@ -204,6 +204,28 @@ def report(archive, candidate):
     print(f'display: {archive} {archive.stat().st_size} bytes')
 
 
+def stub_archive():
+    """A placeholder archive that only satisfies the probe call.
+
+    The XNU source patch calls native_mobile_display_provider_probe() without a
+    config guard, so a link without a display archive fails. Publish a stub at
+    the path the kernel build expects, so it can produce the image the candidate
+    is made from; the real archive replaces it afterwards.
+    """
+    OUT.mkdir(parents=True, exist_ok=True)
+    source = OUT / 'stub.c'
+    source.write_text('/* placeholder: the real provider replaces this archive */\n'
+                      'void native_mobile_display_provider_probe(void) {}\n')
+    sdk = run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+    run(['xcrun', 'clang', '-target', 'arm64-apple-ios17.0', '-isysroot', sdk, '-Werror',
+         '-c', source, '-o', OUT / 'stub.o'])
+    archive = OUT / 'libNativeMobileDisplay.late.a'
+    archive.unlink(missing_ok=True)
+    run(['xcrun', 'ar', 'rcs', archive, OUT / 'stub.o'])
+    (OUT / 'build-report.json').write_text(json.dumps({'archive_sha256': sha(archive)}, indent=2) + '\n')
+    print('display: placeholder archive published for the parent build')
+
+
 def ensure_kernel():
     """The bootstrap pass stops before the link, so there is no image to prelink.
 
@@ -214,7 +236,8 @@ def ensure_kernel():
     if KERNEL.is_file():
         return
     print('display: building a kernel image to prelink against')
-    env = {**os.environ, 'XNU_NATIVE_MOBILE_DISPLAY': '0', 'XNU_BUILD_ARCHIVES': '1',
+    stub_archive()
+    env = {**os.environ, 'XNU_NATIVE_MOBILE_DISPLAY': '1', 'XNU_BUILD_ARCHIVES': '1',
            'XNU_BOOTSTRAP': '0'}
     result = subprocess.run(['bash', ROOT / 'scripts/build-xnu-4k-baseline.sh'],
                             cwd=ROOT, env=env, capture_output=True, text=True)
