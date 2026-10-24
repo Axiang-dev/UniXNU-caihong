@@ -37,8 +37,8 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 #   adb shell "sgdisk --print /dev/block/sda"   (or toybox fdisk -l)
 # first_lba/last_lba are the extents of the partition named "userdata".
 # Do not guess these: a wrong range overwrites an unrelated partition.
-first_lba = 0x0
-last_lba = 0x0
+first_lba = 3769068        # 0x3982ec, from the live GPT
+last_lba = 123786234       # 0x760d3fa
 lba_bytes = 4096
 windows = [
   { name = "OS", component = "OS" },

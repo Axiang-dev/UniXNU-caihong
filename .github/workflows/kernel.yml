@@ -109,6 +109,10 @@ jobs:
           test -f "$trust"
           ./unixnu build payload -D ../device --data-ramdisk /tmp/root-ramdisk.img --trust-cache "$trust"
 
+      - name: Report the root image size
+        working-directory: unixnu
+        run: ./unixnu build userdata -D ../device --dry-run
+
       - name: Upload the kernel
         if: always()
         uses: actions/upload-artifact@v4
