@@ -1,90 +1,182 @@
 # UniXNU-caihong
 
-OnePlus Pad Pro（`caihong` / OPD2404 / SM8650）的 UniXNU 设备仓库。
+OnePlus Pad Pro（`caihong` / OPD2404 / SM8650）上的 UniXNU 移植。
 
-当前状态：**骨架已建，未做固件集成**。已通过官方 `unixnu` 驱动校验
-（`unixnu status` 能识别板子，`unixnu defconfig` 能落 `.config`）。
+## 当前状态
 
-## 已完成
+**内核已完整启动到用户态：`/sbin/launchd` 正在运行，内核日志直接输出到屏幕。**
 
-| 文件 | 说明 |
+```
+ABL → BootShim → UEFI(Mu-Silicium) → UniXNU → payload(UFS/FAT32)
+    → DarwinBoot → XNU → MMU → kext → AMFI → BSD init
+    → 挂载 md0(恢复镜像 APFS) → load_init_program → /sbin/launchd
+```
+
+启动日志的关键几行（屏幕实拍转录）：
+
+```
+VM bootstrap done: 39 maps, 112 entries and L6 holes left
+lockdown_mode: lockdown mode in nvram is off
+calling sep_policy_init for AppleImage4 / AMFI / Sandbox
+Security policy loaded: Apple Image4 hooks / Apple Mobile File Integrity
+thread_attach: 81 kernel threads created for interface lo0
+com.apple.AppleFSCompressionTypeZlib load succeeded
+Added agency device md0/ram0 (02000000/0e000000) at ffffffff009374000
+load_init_program: attempting to load /sbin/launchd
+shared_region: 0x1a241d7c642c7d83 (1(launchd)) check_map(0x16ee/2bbe0)
+```
+
+### 已验证 / 未完成
+
+| 项 | 状态 |
 |---|---|
-| `board.toml` | 板级描述。值来自 `D:\uefi\Resources\Configs\caihong.toml`、`caihong.dtb` 和 giulia 参考移植 |
-| `configs/caihong_defconfig` | 第一阶段内核配置（只求 kernel entry，不开存储/显示/GPU 驱动） |
-| `scripts/make-caihong-adt.py` | ADT 生成器。GIC / 定时器 / DRAM 基址取自 caihong 自己的 DTB |
+| UEFI 启动、UniXNU 菜单 | ✅ |
+| payload 走 UFS 读取（FAT32，`CAIHONGESP` 卷标） | ✅ |
+| DarwinBoot 交接（内核 + ADT + 信任缓存） | ✅ |
+| XNU 内核入口、MMU、kext 全量加载 | ✅ |
+| AMFI PMGR 检查 | ✅ 已 patch 绕过 |
+| BSD 初始化 | ✅ |
+| 根卷挂载（恢复镜像 APFS，`rd=md0`） | ✅ |
+| 用户态启动（launchd） | ✅ |
+| 内核日志上屏 + 心跳 | ✅ |
+| 显示驱动（IOFramebuffer） | ❌ 未做，UI 需要它 |
+| 输入驱动（USB / PMIC 按键） | ❌ 未做，交互需要它 |
+| 完整 OS 根卷（`OS` + `Cryptex1,SystemOS`） | ⏳ `board.toml` 已配好，约 8 GB |
 
-`board.toml` 里唯一没填的是 `[userdata] first_lba/last_lba`——必须从真机 GPT 读，
-不能猜（填错会覆盖别的分区）。
+## 关键技术点
 
-## 还没做：把 UniXNU 接进 UEFI 树
+### 1. IPSW 组件是 IMG4 封装，不是磁盘镜像
 
-参考实现（`tycykp/UniXNU-OnePlus-Ace5`）的 `patches/giulia-unixnu.patch` 给出了完整配方，
-共 8 处改动，全部要在 `D:\uefi` 上做（**建议开分支**）：
+`RestoreRamDisk` / `RestoreTrustCache` 都是 `IM4P` DER 封装（文件头 `30 84 ... IM4P`），
+`hdiutil` 会直接报 "image not recognized"。用 `scripts/unwrap-img4.py` 剥壳后：
 
-1. **`Platforms/OnePlus/caihongPkg/DeviceBuild.py`**
-   `PackagesPath` 里加 `"UniXNU/package"` 和 `"UniXNU/drivers/DarwinBoot"`（必须在前两行）。
+- `RestoreRamDisk` → **原始 APFS 容器**（偏移 32 是 `NXSB`，块大小 4096），
+  内核可直接挂载，**不需要任何转换**
+- `RestoreTrustCache` → v1 信任缓存模块
 
-2. **`caihong.dsc` → `[LibraryClasses]`**
-   ```ini
-   UniXNULib|UniXNUPkg/Library/UniXNULib/UniXNULib.inf
-   FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
-   ```
+### 2. 信任缓存：IPSW 给 v1，DarwinBoot 要 v2 容器
 
-3. **`caihong.dsc` → `[Components]`**
-   ```ini
-   caihongPkg/Drivers/CaihongInitrdDxe/CaihongInitrdDxe.inf
-   UniXNUPkg/Application/UniXNU/UniXNU.inf
-   UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
-   DarwinBootPkg/Driver/DarwinBoot.inf
-   ```
+三种格式必须分清：
 
-4. **`caihong.fdf`** 对应位置加同样 4 个 `INF`。
+| 来源 | 格式 |
+|---|---|
+| IPSW `RestoreTrustCache` | v1：`u32 version=1 + uuid(16) + u32 count`，条目 **22 字节** |
+| IPSW `StaticTrustCache` | v2：`u32 version=2 + uuid(16) + u32 count`，条目 **24 字节** |
+| DarwinBoot `ValidTrustCaches()` 要求 | **容器**：`u32 count + count 个 u32 偏移 + 每个 v2 模块` |
 
-5. **`Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S`**
-   ⚠️ 最关键的一处：ABL 通过 `x0` 传进来的 **FDT 指针必须在平台代码用掉 x0 之前存下来**，
-   否则 DarwinBoot 拿不到真机设备树。
+转换步骤：v1 → v2（22 字节条目补到 24），再包容器头，可把恢复和静态两个缓存合并进一个容器。
+
+判定条件（照抄 DarwinBoot）：`version==2`、`size == 24 + count*24`、
+cdhash 严格升序、`hash_type` 在 1..4、`start >= 4 + count*4` 且 4 字节对齐。
+
+### 3. 根卷挂载需要 `rd=md0`
+
+只有 `initrd` 指向 APFS 镜像还不够，内核仍报 `Failed to mount root device @IOKitBSDInit.cpp:984`。
+加启动参数 `rd=md0` 强制指定内存盘为根设备后挂载成功。
+
+### 4. AMFI 的 PMGR 检查
+
+AMFI 在 `0xfffffff004aaecfc` 处判断 PMGR 类是否存在，不存在就 panic
+（`AMFI: No PMGR?`）。反汇编确认后改成返回 0：
+
+```
+mov x0, x21 ; mov x1, x21 ; bl panic
+→ mov w0, #0 ; b <正常收尾>
+```
+
+见 `scripts/patch-amfi-pmgr-name.py`（该脚本同时把 AMFI 查找的类名
+`ApplePMGRNub` 改成设备树里的 `CaihongPMGRN`）。
+
+### 5. 内核日志上屏
+
+本机的 XNU 视频控制台从不启动，`-v` 和去掉 `serial=3` 都没用：所有 `printf`
+都写进不存在的串口。解决办法是把 `printf` 钩到自写的帧缓冲绘制代码：
+
+- `scripts/xnu-console.c` — freestanding，复用 panic 屏幕的字体与 stack-varargs
+  格式化逻辑；**光标状态存在帧缓冲最后一行**（注入代码在只读段，不能用全局变量）
+- `scripts/patch-xnu-console.py` — 找 `_printf` 符号，在**可执行段尾部 padding**
+  里找空区注入代码，把 `_printf` 首指令改成 `b <console>`
+
+两个必须注意的坑：
+
+1. 代码必须放在 `__TEXT_EXEC` 段尾 padding。`__PRELINK_TEXT` 里那些大块零区
+   **没有映射成可执行**，放进去会 `instruction fetch abort`。
+2. 空区搜索要**从段尾往前扫**。从头扫会占用入口探针为 stage 代码和 panic 屏幕
+   保留的 padding，导致 `Padding at 0x... is not empty` 构建失败。
+
+### 6. 心跳
+
+日志刷完停住之后无法区分"活着"和"卡死"。`processor_idle` 里对 `machine_idle`
+的调用点被改成 `bl heartbeat_wrapper`：保留原调用，然后每 5 秒用 ARM 通用计数器
+（`cntpct_el0`，19.2 MHz）打印一次运行秒数和内存页统计。
+
+## 仓库内容
+
+| 路径 | 说明 |
+|---|---|
+| `board.toml` | 板级描述：ADT 参数、payload 大小、IPSW 组件、`[userdata]` GPT 边界 |
+| `configs/caihong_defconfig` | 内核配置 |
+| `scripts/make-caihong-adt.py` | ADT 生成器（GIC / 定时器 / DRAM 基址取自 caihong 的 DTB） |
+| `scripts/unwrap-img4.py` | 剥掉 IPSW 组件的 IMG4 外壳 |
+| `scripts/patch-amfi-pmgr-name.py` | AMFI PMGR 检查 patch |
+| `scripts/xnu-console.c` + `scripts/patch-xnu-console.py` | 内核日志上屏 + 心跳 |
+| `.github/workflows/kernel.yml` | CI：拉 IPSW 组件、编内核、打 payload、上传 artifact |
+
+## 构建
+
+```sh
+# 内核 + payload（CI 上跑，需要 macOS：hdiutil、Xcode）
+./unixnu build kernel  -D ../device
+./unixnu build payload -D ../device --data-ramdisk <恢复镜像 APFS> --trust-cache <v2 容器>
+
+# 根卷（约 8 GB，需要 macOS）
+./unixnu build userdata -D ../device --ipsw <iPad_Pro_17.7.11_21H461_Restore.ipsw>
+```
+
+固件（Windows 可编）：
+
+```bash
+cd D:/uefi
+export PATH="/c/Program Files/LLVM/bin:$PATH" PYTHONUTF8=1
+python build_uefi.py -d caihong -m 0 -r RELEASE   # → Mu-caihong-0.img
+```
+
+## 刷入
+
+```sh
+fastboot flash userdata payload.img      # payload FAT 卷（当前 252 MiB）
+fastboot boot Mu-caihong-0.img           # 固件
+```
+
+payload 必须独占 userdata；若要上完整 OS 根卷，需要先把 payload 挪到别处。
+
+## 固件集成（已完成，保留作为参考）
+
+参考 `tycykp/UniXNU-OnePlus-Ace5` 的 `patches/giulia-unixnu.patch`，共 8 处改动：
+
+1. `Platforms/OnePlus/caihongPkg/DeviceBuild.py`：`PackagesPath` 加
+   `"UniXNU/package"` 和 `"UniXNU/drivers/DarwinBoot"`（必须在前两行）
+2. `caihong.dsc` → `[LibraryClasses]`：`UniXNULib`、`FdtLib`
+3. `caihong.dsc` → `[Components]`：`CaihongInitrdDxe`、`UniXNU`、`UniXNUDxe`、`DarwinBoot`
+4. `caihong.fdf` 对应位置加同样 4 个 `INF`
+5. `Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S`：
+   **ABL 通过 `x0` 传进来的 FDT 指针必须在平台代码用掉 x0 之前存下来**
    ```asm
    ASM_FUNC (_ModuleEntryPoint)
      adr   x1, ASM_PFX (gSecEntryArg0)
      str   x0, [x1]
      dc    cvac, x1
      dsb   sy
-     ...
-     .align 3
-     .global ASM_PFX (gSecEntryArg0)
-   ASM_PFX (gSecEntryArg0):
-     .quad 0
    ```
+6. `Sec/Sec.c`：把 `gSecEntryArg0` 发布成 HOB
+7. `Sec/Sec.inf` 的 `[Guids]` 加 `gSiliciumEntryArgHobGuid`
+8. `SiliciumPkg.dec` 的 `[Guids]` 定义 `gSiliciumEntryArgHobGuid`
 
-6. **`Sec/Sec.c`**：把 `gSecEntryArg0` 发布成 HOB
-   `BuildGuidDataHob (&gSiliciumEntryArgHobGuid, &gSecEntryArg0, sizeof (gSecEntryArg0));`
+## 下一步
 
-7. **`Sec/Sec.inf`** 的 `[Guids]` 加 `gSiliciumEntryArgHobGuid`。
-
-8. **`SiliciumPkg.dec`** 的 `[Guids]` 定义
-   `gSiliciumEntryArgHobGuid = { 0xDAEE82E6, 0x8090, 0x4E72, { 0xBF, 0xB9, 0x78, 0xC1, 0x3C, 0xD4, 0xE3, 0x59 } }`
-
-### 还缺一个设备侧驱动：CaihongInitrdDxe
-
-作用：把 boot.img 的 ramdisk（UniXNU payload FAT 卷）暴露成只读块设备，
-这样 UniXNU 才能读到 `\EFI\UniXNU\unixnu.toml`。
-
-原型：`D:\unixnu\UniXNU-OnePlus-Ace5\uefi-overlay\Platforms\OnePlus\giuliaPkg\Drivers\GiuliaInitrdDxe\`
-- 核心只有 `GiuliaInitrdDxe.c`（346 行）+ `.inf`（38 行）+ `ScanPolicy.h`
-- 同目录还有一堆 WiFi/触摸相关的头文件（`WifiPcie*.h`、`Touch*.c`），
-  那些是 giulia 的额外诊断，**caihong 先不要**，只搬核心三个文件改名即可。
-
-## 需要的素材
-
-- **UniXNU 源码**：`D:\unixnu\UniXNU`（已下载，4.5 MB）
-- **DarwinBoot**：`D:\unixnu\DarwinBoot`（已下载，108 KB；源码包里的 `drivers/DarwinBoot` 是空目录，必须单独拉）
-- **iOS IPSW**：`iPad7,1 / 17.7.11 / 21H461`（约 7 GB，Apple CDN 公开可下）
-- **macOS**：只有 kernel prelink 和 userdata 需要（Xcode + hdiutil）；
-  UEFI + payload 的 EDK2 部分 Windows 就能编
-
-## 建议顺序
-
-1. 在 `D:\uefi` 开分支，做上面 8 处改动 + 移植 CaihongInitrdDxe → 编出带 UniXNU 的 FD
-2. 打一个 192 MB 的 payload FAT 卷（`unixnu.toml` + 菜单项），塞进 boot.img 的 ramdisk
-3. `fastboot boot` 看 **UniXNU 菜单**（这一步完全不碰 XNU，风险最低）
-4. 菜单稳了再上 macOS runner 编 `kernel.macho`
+1. **显示驱动**：把固件已在用的 GOP 帧缓冲包装成 IOKit `IOFramebuffer`，
+   WindowServer 才有设备可画。工作量以周计。
+2. **输入驱动**：USB 主机控制器或 PMIC 按键，交互的前提。
+3. **完整根卷**：`unixnu build userdata` 生成 `OS` + `Cryptex1,SystemOS`（约 8 GB），
+   刷进 userdata（`first_lba=3769068`、`last_lba=123786234`、`lba_bytes=4096`）。
+   注意 payload 与根卷不能共存于 userdata。
