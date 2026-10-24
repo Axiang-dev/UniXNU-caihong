@@ -11,6 +11,86 @@ OnePlus Pad Pro（`caihong` / OPD2404 / SM8650）上的 UniXNU 移植。
 >
 > 刷机有变砖风险，操作前请自行备份并确认分区边界。
 
+## ⚠️ 机型与系统兼容性（务必先读）
+
+**本移植只在一种机器上实测过**，其他机型/系统版本**全部未验证**。
+下面写清楚哪些能直接照做、哪些必须先自己核对。
+
+### 实测环境
+
+| 项 | 值 |
+|---|---|
+| 机型 | 一加平板 Pro（国行），型号 **OPD2404** |
+| 代号 | `caihong` |
+| SoC | 骁龙 8 Gen 3（SM8650） |
+| 固件基线 | Mu-Silicium `origin/main` + 本仓库 overlay |
+| 内核 | 由本仓库 CI 从 XNU 源码构建，prelink 自 iPad Pro 17.7.11 (21H461) |
+
+### 海外版（OnePlus Pad 2 / OPD2403）能不能刷？
+
+**未知，不要直接照抄。** 已知的对应关系：
+
+| 版本 | 型号 | 代号 | SoC | 系统 |
+|---|---|---|---|---|
+| 国行 一加平板 Pro | OPD2404 | `caihong` | 骁龙 8 Gen 3 | ColorOS |
+| 海外 OnePlus Pad 2 | **OPD2403** | 待确认 | 骁龙 8 Gen 3 | OxygenOS |
+
+同代同 SoC，硬件很可能是同一块板子，但**以下三处是按国行机写死的**，
+海外版必须逐项核对，任何一项不符都会写错分区或加载错误的设备树：
+
+1. **`board.toml` 的 `[userdata] first_lba / last_lba`**
+   —— 国行机的 GPT 边界（`3769068` ~ `123786234`，4096 字节 LBA）。
+   海外版分区表**大概率不同**，直接刷会覆盖到别的分区。
+2. **`uefi-overlay/Resources/DTBs/caihong.dtb`**
+   —— ADT 生成器的 GIC / 定时器 / DRAM 基址全部来自它。
+   设备树对不上，内核会在极早期挂死。
+3. **`scripts/patch-amfi-pmgr-name.py` 里的地址**
+   —— `0xfffffff004aaecfc` 等是**这一份内核构建**的绝对地址，
+   换内核必须重新反汇编定位。
+
+**海外版用户想尝试的话，至少先做这三件事：**
+
+```bash
+# 1. 确认代号与型号（不是 caihong / OPD2404 就不要继续）
+adb shell getprop ro.product.device      # 期望 caihong
+adb shell getprop ro.product.model       # 期望 OPD2404
+
+# 2. 读出自己的 GPT，填进 board.toml（绝不能沿用仓库里的值）
+adb shell su -c "cat /sys/block/sda/sda14/start; cat /sys/block/sda/sda14/size"
+adb shell su -c "cat /proc/partitions"    # 确认 sda14 确实叫 userdata
+
+# 3. 确认分区逻辑块大小是 4096（board.toml 的 lba_bytes）
+adb shell su -c "cat /sys/block/sda/queue/logical_block_size"
+```
+
+三项都对上、并且自己重新生成了设备树和 ADT，才有可能跑通。
+**代号不是 `caihong` 就基本可以放弃**——UEFI 的平台包、设备树、ADT 全是按它写的。
+
+### Android 15 的用户能不能用？
+
+**同样未验证。** 本移植只关心两件事：**ABL 能不能加载我们的固件**，
+以及 **userdata 分区在哪**。系统本身是 14 还是 15 不影响 XNU 的启动逻辑，
+但升级会改变下面这些：
+
+| 升级可能带来的变化 | 影响 |
+|---|---|
+| GPT 分区表调整（新增/移动分区） | `board.toml` 的 LBA 失效 → **写错分区** |
+| `boot` 分区大小变化 | `fastboot boot` 可能失败，但不会变砖 |
+| AVB / vbmeta 策略变化 | 可能拒绝加载非签名镜像；本移植靠 `fastboot boot` 绕过 |
+| ABL 版本变化 | 可能加严校验，导致固件根本起不来 |
+
+**结论**：Android 15 本身不是障碍，但**升级后必须重新读一遍 GPT**，
+确认 `userdata` 的起止 LBA 与 `board.toml` 一致再刷。
+只要用 `fastboot boot`（不改 `boot` 分区）测试，最坏结果是起不来，
+**不会损坏系统**；一旦 `fastboot flash userdata`，Android 数据就没了。
+
+### 通用安全建议
+
+1. **先只做 `fastboot boot`**，不要 `flash` —— 这样随时能回 Android
+2. 动 `flash` 之前，先用 `fastboot getvar all` 和 `sgdisk --print` 记录原始分区表
+3. 本移植会**覆盖 `userdata`**（Android 的用户数据全部丢失），做好备份
+4. 想回 Android：`fastboot flash boot <原 boot.img>` + `fastboot erase userdata`
+
 ## 当前状态
 
 **内核已完整启动到用户态：`/sbin/launchd` 正在运行，内核日志直接输出到屏幕。**
