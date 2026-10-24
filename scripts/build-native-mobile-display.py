@@ -144,7 +144,7 @@ def check_candidate(candidate):
         return data[at:at + size]
 
     first = struct.unpack('<I', read(IOMFB_C2, 4))[0]
-    if first & 0x7f800000 != 0xd1000000:      # sub sp, sp, #imm
+    if first & 0xFFC00000 != 0xD1000000:      # sub sp, sp, #imm
         fail(f'IOMobileFramebuffer C2 at {IOMFB_C2:#x} does not start with a frame setup ({first:#010x})')
     for site, label in ((IOMFB_C2, 'C2'), (IOMFB_D2, 'D2')):
         word = struct.unpack('<I', read(site + 0x30 if label == 'C2' else site + 0x18, 4))[0]
