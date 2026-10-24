@@ -99,6 +99,29 @@ for match in re.finditer(r"`((?:scripts|configs|uefi-overlay|patches)/[A-Za-z0-9
         fail(f"README references {name}, which does not exist")
 ok("README file references resolve")
 
+# --- the firmware overlay and patches are present and well formed ----------
+overlay = ROOT / "uefi-overlay"
+overlay_files = [f for f in overlay.rglob("*") if f.is_file() and f.name != "README.md"]
+if len(overlay_files) < 5:
+    fail(f"uefi-overlay has only {len(overlay_files)} files; the firmware side looks incomplete")
+for path in overlay_files:
+    if path.stat().st_size == 0:
+        fail(f"{path.relative_to(ROOT)} is empty")
+ok(f"uefi-overlay carries {len(overlay_files)} files")
+
+patch = ROOT / "patches" / "uefi-integration.patch"
+if not patch.is_file():
+    fail("patches/uefi-integration.patch is missing")
+else:
+    head = patch.read_text(encoding="utf-8", errors="replace")[:200]
+    if not head.startswith("diff --git"):
+        fail("patches/uefi-integration.patch does not start with a git diff")
+    touched = patch.read_text(encoding="utf-8", errors="replace").count("diff --git")
+    if touched < 10:
+        fail(f"patches/uefi-integration.patch touches only {touched} files")
+    else:
+        ok(f"patches/uefi-integration.patch touches {touched} files")
+
 # --- no build output, no secrets -------------------------------------------
 for path in ROOT.rglob("*"):
     if ".git" in path.parts or not path.is_file():

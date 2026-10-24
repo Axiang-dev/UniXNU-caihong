@@ -160,27 +160,14 @@ fastboot boot Mu-caihong-0.img           # 固件
 
 payload 必须独占 userdata；若要上完整 OS 根卷，需要先把 payload 挪到别处。
 
-## 固件集成（已完成，保留作为参考）
+## 固件集成
 
-参考项目 `tycykp/UniXNU-OnePlus-Ace5` 里的 `patches/giulia-unixnu.patch`（**那是另一个仓库的文件，不在本仓库**），共 8 处改动：
+完整步骤见 [`uefi-overlay/README.md`](uefi-overlay/README.md)：打
+`patches/uefi-integration.patch` 到 Mu-Silicium，再覆盖 `uefi-overlay/`，
+最后把 UniXNU 源码放到 `UniXNU/`。这条流程已实测能从上游还原出可用的树。
 
-1. `Platforms/OnePlus/caihongPkg/DeviceBuild.py`：`PackagesPath` 加
-   `"UniXNU/package"` 和 `"UniXNU/drivers/DarwinBoot"`（必须在前两行）
-2. `caihong.dsc` → `[LibraryClasses]`：`UniXNULib`、`FdtLib`
-3. `caihong.dsc` → `[Components]`：`CaihongInitrdDxe`、`UniXNU`、`UniXNUDxe`、`DarwinBoot`
-4. `caihong.fdf` 对应位置加同样 4 个 `INF`
-5. `Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S`：
-   **ABL 通过 `x0` 传进来的 FDT 指针必须在平台代码用掉 x0 之前存下来**
-   ```asm
-   ASM_FUNC (_ModuleEntryPoint)
-     adr   x1, ASM_PFX (gSecEntryArg0)
-     str   x0, [x1]
-     dc    cvac, x1
-     dsb   sy
-   ```
-6. `Sec/Sec.c`：把 `gSecEntryArg0` 发布成 HOB
-7. `Sec/Sec.inf` 的 `[Guids]` 加 `gSiliciumEntryArgHobGuid`
-8. `SiliciumPkg.dec` 的 `[Guids]` 定义 `gSiliciumEntryArgHobGuid`
+参考项目 `tycykp/UniXNU-OnePlus-Ace5` 里的 `patches/giulia-unixnu.patch`
+（**另一个仓库的文件，不在本仓库**）是最初的依据。
 
 ### 额外的固件补丁：启动失败时停住
 

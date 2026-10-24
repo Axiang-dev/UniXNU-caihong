@@ -1,0 +1,1121 @@
+diff --git a/Platforms/OnePlus/caihongPkg/DeviceBuild.py b/Platforms/OnePlus/caihongPkg/DeviceBuild.py
+new file mode 100644
+index 00000000..f6071788
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/DeviceBuild.py
+@@ -0,0 +1,207 @@
++##
++# Copyright (c) Microsoft Corporation.
++# SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++
++import datetime
++import logging
++import os
++import uuid
++
++from io import StringIO
++from pathlib import Path
++
++from edk2toolext.environment import shell_environment
++from edk2toolext.environment.uefi_build import UefiBuilder
++from edk2toolext.invocables.edk2_platform_build import BuildSettingsManager
++from edk2toolext.invocables.edk2_pr_eval import PrEvalSettingsManager
++from edk2toolext.invocables.edk2_setup import (RequiredSubmodule, SetupSettingsManager)
++from edk2toolext.invocables.edk2_update import UpdateSettingsManager
++from edk2toolext.invocables.edk2_parse import ParseSettingsManager
++from edk2toollib.utility_functions import RunCmd
++
++# ####################################################################################### #
++#                                Common Configuration                                     #
++# ####################################################################################### #
++class CommonPlatform ():
++    PackagesSupported = ("caihongPkg")
++    ArchSupported = ("AARCH64")
++    TargetsSupported = ("DEBUG", "RELEASE")
++    Scopes = ('caihong', 'gcc_aarch64_linux', 'edk2-build')
++    WorkspaceRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++    PackagesPath = (
++        "UniXNU/package",
++        "UniXNU/drivers/DarwinBoot",
++        "Platforms/OnePlus",
++        "Common/Mu",
++        "Common/Mu_OEM_Sample",
++        "Mu_Basecore",
++        "Silicon/Qualcomm",
++        "Silicon/Silicium",
++        "Silicium-ACPI",
++        "Silicium-ACPI/Platforms/OnePlus",
++        "Silicium-ACPI/Silicon/Qualcomm"
++    )
++
++# ####################################################################################### #
++#                         Configuration for Update & Setup                                #
++# ####################################################################################### #
++class SettingsManager (UpdateSettingsManager, SetupSettingsManager, PrEvalSettingsManager, ParseSettingsManager):
++
++    def GetPackagesSupported (self):
++        return CommonPlatform.PackagesSupported
++
++    def GetArchitecturesSupported (self):
++        return CommonPlatform.ArchSupported
++
++    def GetTargetsSupported (self):
++        return CommonPlatform.TargetsSupported
++
++    def GetRequiredSubmodules (self):
++        return [
++            RequiredSubmodule ("Binaries", True),
++            RequiredSubmodule ("Common/Mu", True),
++            RequiredSubmodule ("Common/Mu_OEM_Sample", True),
++            RequiredSubmodule ("Mu_Basecore", True),
++            RequiredSubmodule ("Silicium-ACPI", True),
++            RequiredSubmodule ("Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl", True)
++        ]
++
++    def SetArchitectures (self, list_of_requested_architectures):
++        unsupported = set(list_of_requested_architectures) - set(self.GetArchitecturesSupported())
++
++        if (len(unsupported) > 0):
++            errorString = ("Unsupported Architecture Requested: " + " ".join(unsupported))
++            logging.critical (errorString)
++            raise Exception (errorString)
++
++        self.ActualArchitectures = list_of_requested_architectures
++
++    def GetWorkspaceRoot (self):
++        return CommonPlatform.WorkspaceRoot
++
++    def GetActiveScopes (self):
++        return CommonPlatform.Scopes
++
++    def FilterPackagesToTest (self, changedFilesList: list, potentialPackagesList: list) -> list:
++        build_these_packages = []
++        possible_packages = potentialPackagesList.copy ()
++
++        for f in changedFilesList:
++            if "BaseTools" in f:
++                if os.path.splitext(f) not in [".txt", ".md"]:
++                    build_these_packages = possible_packages
++                    break
++
++            if "platform-build-run-steps.yml" in f:
++                build_these_packages = possible_packages
++                break
++
++        return build_these_packages
++
++    def GetPlatformDscAndConfig (self) -> tuple:
++        return ("caihongPkg/caihong.dsc", {})
++
++    def GetName (self):
++        return "caihong"
++
++    def GetPackagesPath (self):
++        return CommonPlatform.PackagesPath
++
++# ####################################################################################### #
++#                         Actual Configuration for Platform Build                         #
++# ####################################################################################### #
++class PlatformBuilder (UefiBuilder, BuildSettingsManager):
++    def __init__ (self):
++        UefiBuilder.__init__ (self)
++
++    def AddCommandLineOptions (self, parserObj):
++        parserObj.add_argument('-a', "--arch", dest="build_arch", type=str, default="AARCH64", help="Optional - CSV of architecture to build. AARCH64 is used for PEI and DXE and is the only valid option for this platform.")
++
++    def RetrieveCommandLineOptions (self, args):
++        if args.build_arch.upper() != "AARCH64":
++            raise Exception("Invalid Arch Specified.  Please see comments in DeviceBuild.py::PlatformBuilder::AddCommandLineOptions")
++
++    def GetWorkspaceRoot (self):
++        return CommonPlatform.WorkspaceRoot
++
++    def GetPackagesPath (self):
++        result = [ shell_environment.GetBuildVars().GetValue("FEATURE_CONFIG_PATH", "") ]
++
++        for a in CommonPlatform.PackagesPath:
++            result.append(a)
++
++        return result
++
++    def GetActiveScopes (self):
++        return CommonPlatform.Scopes
++
++    def GetName (self):
++        return "caihongPkg"
++
++    def GetLoggingLevel (self, loggerType):
++        return logging.INFO
++        return super().GetLoggingLevel(loggerType)
++
++    def SetPlatformEnv (self):
++        logging.debug ("PlatformBuilder SetPlatformEnv")
++
++        self.env.SetValue ("PRODUCT_NAME", "caihong", "Platform Hardcoded")
++        self.env.SetValue ("ACTIVE_PLATFORM", "caihongPkg/caihong.dsc", "Platform Hardcoded")
++        self.env.SetValue ("TARGET_ARCH", "AARCH64", "Platform Hardcoded")
++        self.env.SetValue ("TOOL_CHAIN_TAG", "CLANGPDB", "set default to clangpdb")
++        self.env.SetValue ("EMPTY_DRIVE", "FALSE", "Default to false")
++        self.env.SetValue ("RUN_TESTS", "FALSE", "Default to false")
++        self.env.SetValue ("SHUTDOWN_AFTER_RUN", "FALSE", "Default to false")
++        self.env.SetValue ("BLD_*_BUILDID_STRING", "Unknown", "Default")
++        self.env.SetValue ("BUILDREPORTING", "TRUE", "Enabling build report")
++        self.env.SetValue ("BUILDREPORT_TYPES", "PCD DEPEX FLASH BUILD_FLAGS LIBRARY FIXED_ADDRESS HASH", "Setting build report types")
++        self.env.SetValue ("BLD_*_MEMORY_PROTECTION", "TRUE", "Default")
++        self.env.SetValue ("BLD_*_SHIP_MODE", "FALSE", "Default")
++        self.env.SetValue ("BLD_*_DEVICE_MODEL", self.env.GetValue("DEVICE_MODEL"), "Default")
++        self.env.SetValue ("BLD_*_ENABLE_SECUREBOOT", self.env.GetValue("ENABLE_SECUREBOOT"), "Default")
++        self.env.SetValue ("BLD_*_FD_BASE", self.env.GetValue("FD_BASE"), "Default")
++        self.env.SetValue ("BLD_*_FD_SIZE", self.env.GetValue("FD_SIZE"), "Default")
++        self.env.SetValue ("BLD_*_FD_BLOCKS", self.env.GetValue("FD_BLOCKS"), "Default")
++
++        return 0
++
++    def PlatformPreBuild (self):
++        return 0
++
++    def PlatformPostBuild (self):
++        return 0
++
++    def FlashRomImage (self):
++        return 0
++
++if __name__ == "__main__":
++    import argparse
++    import sys
++
++    from edk2toolext.invocables.edk2_platform_build import Edk2PlatformBuild
++    from edk2toolext.invocables.edk2_setup import Edk2PlatformSetup
++    from edk2toolext.invocables.edk2_update import Edk2Update
++
++    SCRIPT_PATH = os.path.relpath (__file__)
++
++    parser = argparse.ArgumentParser (add_help=False)
++
++    parse_group = parser.add_mutually_exclusive_group()
++
++    parse_group.add_argument ("--update", "--UPDATE", action='store_true', help="Invokes stuart_update")
++    parse_group.add_argument ("--setup",  "--SETUP",  action='store_true', help="Invokes stuart_setup")
++
++    args, remaining = parser.parse_known_args()
++
++    new_args = ["stuart", "-c", SCRIPT_PATH]
++    new_args = new_args + remaining
++
++    sys.argv = new_args
++
++    if args.setup:
++        Edk2PlatformSetup().Invoke()
++    elif args.update:
++        Edk2Update().Invoke()
++    else:
++        Edk2PlatformBuild().Invoke()
+diff --git a/Platforms/OnePlus/caihongPkg/Include/APRIORI.inc b/Platforms/OnePlus/caihongPkg/Include/APRIORI.inc
+new file mode 100644
+index 00000000..38addd34
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Include/APRIORI.inc
+@@ -0,0 +1,112 @@
++APRIORI DXE {
++  INF MdeModulePkg/Core/Dxe/DxeMain.inf
++  INF MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
++  INF QcomPkg/Drivers/IortDtDxe/IortDtDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/EnvDxe/EnvDxeEnhanced.inf
++
++  INF MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf
++  INF MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe.inf
++  INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
++  INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
++  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
++  INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
++  INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/SmemDxe/SmemDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/DALSYSDxe/DALSYSDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/HWIODxe/HWIODxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PlatformInfoDxe/PlatformInfoDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/HALIOMMUDxe/HALIOMMUDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ULogDxe/ULogDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/IPCCDxe/IPCCDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/Smp2pDxe/Smp2pDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SSRDxe/SSRDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/CmdDbDxe/CmdDbDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PwrUtilsDxe/PwrUtilsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/NpaDxe/NpaDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/RpmhDxe/RpmhDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/VcsDxe/VcsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ClockDxe/ClockDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ICBDxe/ICBDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ShmBridgeDxe/ShmBridgeDxeLA.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TzDxe/ScmDxeCompat.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TLMMDxe/TLMMDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/I2CDxe/I2CDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SPMIDxe/SPMIDxe.inf
++
++  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/PmicDxe/PmicDxeLa.inf
++  INF Binaries/caihong/MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
++  INF Binaries/caihong/MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
++
++  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/SdccDxe/SdccDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UFSDxe/UFSDxe.inf
++
++  INF FatPkg/EnhancedFatDxe/Fat.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/TzDxe/TzDxeLA.inf
++
++  INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/DDRInfoDxe/DDRInfoDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/OcdtDxe/OplusProject.inf
++  INF Binaries/caihong/QcomPkg/Drivers/FeatureEnablerDxe/FeatureEnablerDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PILProxyDxe/PILProxyDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PILDxe/PILDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/GLinkDxe/GLinkDxe.inf
++
++  INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
++  INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
++  INF EmbeddedPkg/EmbeddedMonotonicCounter/EmbeddedMonotonicCounter.inf
++  INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
++  INF MdeModulePkg/Universal/PrintDxe/PrintDxe.inf
++  INF MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
++  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
++  INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
++  INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/SPIDxe/SPIDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PmicGlinkDxe/PmicGlinkDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/XhciPciEmulationDxe/XhciPciEmulationDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/XhciDxe/XhciDxe.inf
++
++  INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ButtonsDxe/ButtonsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TsensDxe/TsensDxe.inf
++
++!if $(USE_CUSTOM_DISPLAY_DRIVER) == 1
++  INF Binaries/caihong/QcomPkg/Drivers/DisplayDxe/DisplayDxe.inf
++!else
++  INF SiliciumPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
++!endif
++
++  INF Binaries/caihong/QcomPkg/Drivers/LimitsDxe/LimitsDxe.inf
++!if $(USE_CUSTOM_DISPLAY_DRIVER) == 1
++  INF Binaries/caihong/QcomPkg/Drivers/CPRDxe/CPRDxe.inf
++!endif
++  INF Binaries/caihong/QcomPkg/Drivers/GpiDxe/GpiDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UCDxe/UCDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/RNGDxe/RngDxe.inf
++
++  INF EmbeddedPkg/SimpleTextInOutSerial/SimpleTextInOutSerial.inf
++  INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
++  INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
++  INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/RscDxe/RscDxe.inf
++}
+diff --git a/Platforms/OnePlus/caihongPkg/Include/DXE.inc b/Platforms/OnePlus/caihongPkg/Include/DXE.inc
+new file mode 100644
+index 00000000..288b5e2f
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Include/DXE.inc
+@@ -0,0 +1,112 @@
++  INF MdeModulePkg/Core/Dxe/DxeMain.inf
++  INF MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/EnvDxe/EnvDxeEnhanced.inf
++
++  INF MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf
++  INF MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe.inf
++  INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
++  INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
++  INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/ShmBridgeDxe/ShmBridgeDxeLA.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TzDxe/ScmDxeCompat.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TzDxe/TzDxeLA.inf
++
++  INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
++  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
++  INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
++  INF EmbeddedPkg/EmbeddedMonotonicCounter/EmbeddedMonotonicCounter.inf
++  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
++  INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
++  INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
++  INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
++  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
++  INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PlatformInfoDxe/PlatformInfoDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/DALSYSDxe/DALSYSDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/HALIOMMUDxe/HALIOMMUDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/HWIODxe/HWIODxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TLMMDxe/TLMMDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PmicDxe/PmicDxeLa.inf
++
++  INF MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
++
++  INF Binaries/caihong/MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
++  INF Binaries/caihong/MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
++
++  INF FatPkg/EnhancedFatDxe/Fat.inf
++  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/UFSDxe/UFSDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/CmdDbDxe/CmdDbDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PwrUtilsDxe/PwrUtilsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/RpmhDxe/RpmhDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/NpaDxe/NpaDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ULogDxe/ULogDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/VcsDxe/VcsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ClockDxe/ClockDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SPMIDxe/SPMIDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ICBDxe/ICBDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SmemDxe/SmemDxe.inf
++
++  INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/RscDxe/RscDxe.inf
++
++  INF EmbeddedPkg/SimpleTextInOutSerial/SimpleTextInOutSerial.inf
++  INF MdeModulePkg/Universal/PrintDxe/PrintDxe.inf
++  INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
++  INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
++  INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
++
++!if $(USE_CUSTOM_DISPLAY_DRIVER) == 1
++  INF Binaries/caihong/QcomPkg/Drivers/CPRDxe/CPRDxe.inf
++!endif
++  INF Binaries/caihong/QcomPkg/Drivers/GpiDxe/GpiDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SPIDxe/SPIDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/I2CDxe/I2CDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SdccDxe/SdccDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/FeatureEnablerDxe/FeatureEnablerDxe.inf
++
++!if $(USE_CUSTOM_DISPLAY_DRIVER) == 1
++  INF Binaries/caihong/QcomPkg/Drivers/DisplayDxe/DisplayDxe.inf
++  # Re-enable (power-cycle) the panel after DXE display resets.
++  # Same pattern used by enchilada / miatoll / equuleus / lavender.
++  INF QcomPkg/Drivers/DisplayReEnablerDxe/DisplayReEnablerDxe.inf
++!else
++  INF SiliciumPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
++!endif
++
++  INF Binaries/caihong/QcomPkg/Drivers/ButtonsDxe/ButtonsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/IPCCDxe/IPCCDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/Smp2pDxe/Smp2pDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/SSRDxe/SSRDxe.inf
++  # Crashes
++  # INF Binaries/caihong/QcomPkg/Drivers/GLinkDxe/GLinkDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/OcdtDxe/OplusProject.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PmicGlinkDxe/PmicGlinkDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/TsensDxe/TsensDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/LimitsDxe/LimitsDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/DDRInfoDxe/DDRInfoDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/XhciPciEmulationDxe/XhciPciEmulationDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/XhciDxe/XhciDxe.inf
++
++  INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
++
++  INF Binaries/caihong/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UsbInitDxe/UsbInitDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/UCDxe/UCDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/RNGDxe/RngDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PILDxe/PILDxe.inf
++  INF Binaries/caihong/QcomPkg/Drivers/PILProxyDxe/PILProxyDxe.inf
+diff --git a/Platforms/OnePlus/caihongPkg/Include/RAW.inc b/Platforms/OnePlus/caihongPkg/Include/RAW.inc
+new file mode 100644
+index 00000000..f7e3abb5
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Include/RAW.inc
+@@ -0,0 +1,262 @@
++  FILE FREEFORM = A91D838E-A5FA-4138-825D-455E2303079E {
++    SECTION UI = "BDS_Menu.cfg"
++    SECTION RAW = Binaries/caihong/RawFiles/BDS_Menu.cfg
++  }
++  FILE FREEFORM = 03E9256F-E621-48D8-8576-7E3B4FCF2D41 {
++    SECTION UI = "PanelSimConfig.csv"
++    SECTION RAW = Binaries/caihong/RawFiles/PanelSimConfig.csv
++  }
++  FILE FREEFORM = 45FE4B7C-150C-45DA-A021-4BEB2048EC6F {
++    SECTION UI = "QcomChargerCfg.cfg"
++    SECTION RAW = Binaries/caihong/RawFiles/QcomChargerCfg.cfg
++  }
++  FILE FREEFORM = A1E235DE-E825-4591-9623-C43175811826 {
++    SECTION UI = "SecParti.cfg"
++    SECTION RAW = Binaries/caihong/RawFiles/SecParti.cfg
++  }
++  FILE FREEFORM = 21E9BDD9-6C3F-4F10-84A5-BBEC322741F1 {
++    SECTION UI = "uefipil.cfg"
++    SECTION RAW = Binaries/caihong/RawFiles/uefipil.cfg
++  }
++  FILE FREEFORM = DDE58710-41CD-4306-DBFB-3FA90BB1D2DD {
++    SECTION UI = "uefiplat.cfg"
++    SECTION RAW = Binaries/caihong/RawFiles/uefiplat.cfg
++  }
++!if $(USE_CUSTOM_DISPLAY_DRIVER) == 1
++  FILE FREEFORM = E0ABCA0D-64AD-49DF-B2B5-8C6CDB7741B2 {
++    SECTION UI = "Panel_AA567_P_3_A0004_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_AA567_P_3_A0004_dsc_cmd.xml
++  }
++  FILE FREEFORM = 9CFBDB42-EB49-4108-B8C7-068B6B0446F5 {
++    SECTION UI = "Panel_AA577_P_3_A0020_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_AA577_P_3_A0020_dsc_cmd.xml
++  }
++  FILE FREEFORM = C11015D9-B290-4190-B0BA-4E0BD0EDCF79 {
++    SECTION UI = "Panel_AC545_P_1_A0006_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_AC545_P_1_A0006_dsc_cmd.xml
++  }
++  FILE FREEFORM = 5A79E9A0-A484-4F0D-BC30-D86DCAA0CA74 {
++    SECTION UI = "Panel_AC545_P_3_A0005_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_AC545_P_3_A0005_dsc_cmd.xml
++  }
++  FILE FREEFORM = 96D363D7-3799-4EA9-BFDE-FEC4F12C7B6F {
++    SECTION UI = "Panel_AC545_P_3_A0005_dsc_cmd_mura.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_AC545_P_3_A0005_dsc_cmd_mura.xml
++  }
++  FILE FREEFORM = D7170685-5965-4B44-9305-37CDB199B9BE {
++    SECTION UI = "Panel_boe_amoled_fhd_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_boe_amoled_fhd_dsc_cmd.xml
++  }
++  FILE FREEFORM = 88CA5ABF-D0AC-4093-A68C-0CFAE1EF9635 {
++    SECTION UI = "Panel_boe_amoled_wqhd_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_boe_amoled_wqhd_dsc_cmd.xml
++  }
++  FILE FREEFORM = 6523A5C9-91CB-45C0-A2DC-25997CF23369 {
++    SECTION UI = "Panel_boe_amoled_wqhd_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_boe_amoled_wqhd_dsc_vid.xml
++  }
++  FILE FREEFORM = FFC5906E-0AFD-4F96-811E-2CDAED3BE3B1 {
++    SECTION UI = "Panel_csot_nt36532_2120_3000_dual_dsc_144hz_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_csot_nt36532_2120_3000_dual_dsc_144hz_vid.xml
++  }
++  FILE FREEFORM = D51F9431-A349-41D5-9851-6EAC8A3FDA8C {
++    SECTION UI = "Panel_divo_P_3_AB781_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_divo_P_3_AB781_dsc_cmd.xml
++  }
++  FILE FREEFORM = 81E11065-F918-4F95-9C3B-5CD7EAA9B3CE {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_dsc_cmd.xml
++  }
++  FILE FREEFORM = DB426199-7949-4217-AE4F-D63727B884D5 {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_dvt_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_dvt_dsc_cmd.xml
++  }
++  FILE FREEFORM = 62337AFC-3A81-48E9-A2D1-196BC130BEF4 {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_dvt_low_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_dvt_low_dsc_cmd.xml
++  }
++  FILE FREEFORM = 63D6A7C9-56DF-4271-8F72-B16E433DD895 {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_evt_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_evt_dsc_cmd.xml
++  }
++  FILE FREEFORM = A434BC54-888D-470B-B60A-46406C78D61C {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_evt_old_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_evt_old_dsc_cmd.xml
++  }
++  FILE FREEFORM = 6C457004-C366-496C-8637-31D09E07D095 {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_high_pre_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_high_pre_dsc_cmd.xml
++  }
++  FILE FREEFORM = EC0F8F48-2E37-4CAB-A406-9428413ABE4C {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_pre_pvt_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_pre_pvt_dsc_cmd.xml
++  }
++  FILE FREEFORM = E850A68A-71C2-47DD-9273-333255F94E6F {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_pvt_bd_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_pvt_bd_dsc_cmd.xml
++  }
++  FILE FREEFORM = 955533D9-856F-4705-9967-16DD32FE2C6A {
++    SECTION UI = "Panel_enzo_boe_ili7838e_1264_2780_pvt_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_enzo_boe_ili7838e_1264_2780_pvt_dsc_cmd.xml
++  }
++  FILE FREEFORM = BE71899C-4836-480E-BD9D-A1371936774E {
++    SECTION UI = "Panel_nt35652w_2000_2800_dual_dsc_144hz_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_nt35652w_2000_2800_dual_dsc_144hz_vid.xml
++  }
++  FILE FREEFORM = 8F276EE4-E75E-4C3B-8BCC-C37771E26478 {
++    SECTION UI = "Panel_nt36860_wqhd_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_nt36860_wqhd_dsc_cmd.xml
++  }
++  FILE FREEFORM = 6F2D4884-D8A0-11E9-AF7A-D77B1FE990EC {
++    SECTION UI = "Panel_nt36860_wqhd_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_nt36860_wqhd_dsc_vid.xml
++  }
++  FILE FREEFORM = 8297C793-9861-422C-9F67-D447AF1EA812 {
++    SECTION UI = "Panel_r66451_120hz_fhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_120hz_fhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = F4A245C8-940E-4523-A53B-82E3C8BC6970 {
++    SECTION UI = "Panel_r66451_120hz_fhd_plus_dsc_cmd_demura.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_120hz_fhd_plus_dsc_cmd_demura.xml
++  }
++  FILE FREEFORM = 61156380-EB8A-4618-940F-AB9BDEA1EEC2 {
++    SECTION UI = "Panel_r66451_120hz_fhd_plus_dsc_cmd_hdk.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_120hz_fhd_plus_dsc_cmd_hdk.xml
++  }
++  FILE FREEFORM = 44B09226-C2B4-45ED-AA6F-6686DB103978 {
++    SECTION UI = "Panel_r66451_120hz_fhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_120hz_fhd_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = 9874B60A-6B80-4D76-8EEB-7862C780EC03 {
++    SECTION UI = "Panel_r66451_144hz_fhd_plus_dsc_cmd_cphy.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_144hz_fhd_plus_dsc_cmd_cphy.xml
++  }
++  FILE FREEFORM = BC28E12E-C7E0-47F9-BBF9-0B45ED6F4B18 {
++    SECTION UI = "Panel_r66451_144hz_fhd_plus_dsc_vid_cphy.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_144hz_fhd_plus_dsc_vid_cphy.xml
++  }
++  FILE FREEFORM = 81CE7295-491D-4E3F-AAA7-AB43FEF2F615 {
++    SECTION UI = "Panel_r66451_60hz_fhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_60hz_fhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = 637AD94D-7D9B-4D5F-B420-770B65BECDA8 {
++    SECTION UI = "Panel_r66451_60hz_fhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_r66451_60hz_fhd_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = 95FA1AB2-A4C8-4891-ABD3-3DE4BAB07680 {
++    SECTION UI = "Panel_rumi_cwb_vga_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_rumi_cwb_vga_dsc_vid.xml
++  }
++  FILE FREEFORM = 294C3CF4-D6B6-48D3-8C59-12326B83B682 {
++    SECTION UI = "Panel_sec_vtdr6130_144hz_fhd_plus_dsc_cmd_rfi.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sec_vtdr6130_144hz_fhd_plus_dsc_cmd_rfi.xml
++  }
++  FILE FREEFORM = 3D03BAB4-E61B-47B3-A562-18206869B5D2 {
++    SECTION UI = "Panel_sec_vtdr6130_144hz_fhd_plus_dsc_vid_rfi.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sec_vtdr6130_144hz_fhd_plus_dsc_vid_rfi.xml
++  }
++  FILE FREEFORM = D3F8580C-CCB8-4804-BB03-776E7B542FC2 {
++    SECTION UI = "Panel_secondary_truly_1080p_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_secondary_truly_1080p_cmd.xml
++  }
++  FILE FREEFORM = D192FEE9-6A04-4BE8-ABFE-5534E2B457EC {
++    SECTION UI = "Panel_secondary_truly_1080p_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_secondary_truly_1080p_vid.xml
++  }
++  FILE FREEFORM = 23EB5E2D-4A4D-4B35-BB7B-BE39D7EE440D {
++    SECTION UI = "Panel_secondary_vtdr6130_144hz_fhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_secondary_vtdr6130_144hz_fhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = A413F4E1-50FE-4848-82F1-EFB814608221 {
++    SECTION UI = "Panel_secondary_vtdr6130_144hz_fhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_secondary_vtdr6130_144hz_fhd_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = 0AE323D6-2EBE-11E8-8349-9BA636A0D80C {
++    SECTION UI = "Panel_sharp_1080p_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sharp_1080p_cmd.xml
++  }
++  FILE FREEFORM = 0A60AF27-D18D-452F-BB8B-1A886F7F6CCC {
++    SECTION UI = "Panel_sharp_120hz_qhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sharp_120hz_qhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = 81466938-BB9E-43DC-A208-A41BA82A5861 {
++    SECTION UI = "Panel_sharp_120hz_qhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sharp_120hz_qhd_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = 81D00687-181B-4B23-A1CC-85FE6B9E25E6 {
++    SECTION UI = "Panel_sharp_120hz_qhdpipe_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sharp_120hz_qhdpipe_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = 8BC595B7-391A-4A9A-8256-5B9983B30392 {
++    SECTION UI = "Panel_sharp_4k_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sharp_4k_dsc_cmd.xml
++  }
++  FILE FREEFORM = 19B58ACD-B1F8-4078-B9A5-A33584B680E2 {
++    SECTION UI = "Panel_sharp_4k_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_sharp_4k_dsc_vid.xml
++  }
++  FILE FREEFORM = 87273B42-311D-11E8-9324-DFB2DADFC3D1 {
++    SECTION UI = "Panel_truly_1080p_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_1080p_cmd.xml
++  }
++  FILE FREEFORM = BAFD3200-311D-11E8-8651-0FB3CACF38FB {
++    SECTION UI = "Panel_truly_1080p_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_1080p_vid.xml
++  }
++  FILE FREEFORM = EB0A97F6-39DB-41D4-9B3C-CA3BADC144B4 {
++    SECTION UI = "Panel_truly_wqxga_cmd_splitlink.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_wqxga_cmd_splitlink.xml
++  }
++  FILE FREEFORM = 8CAE2C55-FC5A-410B-812B-8CA22F572F36 {
++    SECTION UI = "Panel_truly_wqxga_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_wqxga_dsc_cmd.xml
++  }
++  FILE FREEFORM = 13AC9DC9-0092-4374-AE1A-06FF35950FD0 {
++    SECTION UI = "Panel_truly_wqxga_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_wqxga_dsc_vid.xml
++  }
++  FILE FREEFORM = FC6315F9-F8FE-4222-A1E3-226DF55D7592 {
++    SECTION UI = "Panel_truly_wqxga_dual_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_wqxga_dual_cmd.xml
++  }
++  FILE FREEFORM = 95E7B040-26A2-4511-9ABB-1D95D6DA7082 {
++    SECTION UI = "Panel_truly_wqxga_dual_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_truly_wqxga_dual_vid.xml
++  }
++  FILE FREEFORM = 138816EF-44B3-4FA1-9F8C-CA23B0AC72CD {
++    SECTION UI = "Panel_vtdr6130_120hz_fhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_120hz_fhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = 54603FD1-6CD3-469E-A2FB-D0759525C423 {
++    SECTION UI = "Panel_vtdr6130_120hz_fhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_120hz_fhd_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = AE3F9548-010C-4AEC-A9D2-4AE3E16D2F8B {
++    SECTION UI = "Panel_vtdr6130_144hz_fhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_144hz_fhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = 3DE03011-41E8-4353-A4E5-02721E71A0F4 {
++    SECTION UI = "Panel_vtdr6130_144hz_fhd_plus_dsc_cmd_demura.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_144hz_fhd_plus_dsc_cmd_demura.xml
++  }
++  FILE FREEFORM = 0EF4D970-0B59-4AF4-A8F7-F6A239EED792 {
++    SECTION UI = "Panel_vtdr6130_144hz_fhd_plus_dsc_cmd_rfi.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_144hz_fhd_plus_dsc_cmd_rfi.xml
++  }
++  FILE FREEFORM = 12372575-2A07-4C4E-BE92-6093A55FED33 {
++    SECTION UI = "Panel_vtdr6130_144hz_fhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_144hz_fhd_plus_dsc_vid.xml
++  }
++  FILE FREEFORM = FFE173B7-8204-4353-BF62-70F8CE770916 {
++    SECTION UI = "Panel_vtdr6130_144hz_fhd_plus_dsc_vid_demura.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_144hz_fhd_plus_dsc_vid_demura.xml
++  }
++  FILE FREEFORM = 36630E03-0236-4983-ABDE-F982B23419FE {
++    SECTION UI = "Panel_vtdr6130_60hz_fhd_plus_dsc_cmd.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_60hz_fhd_plus_dsc_cmd.xml
++  }
++  FILE FREEFORM = 573FA171-1D5C-4C12-BDC8-19DCEFBBD483 {
++    SECTION UI = "Panel_vtdr6130_60hz_fhd_plus_dsc_vid.xml"
++    SECTION RAW = Binaries/caihong/RawFiles/Panel_vtdr6130_60hz_fhd_plus_dsc_vid.xml
++  }
++!endif
+diff --git a/Platforms/OnePlus/caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.c b/Platforms/OnePlus/caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.c
+new file mode 100644
+index 00000000..e123a959
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.c
+@@ -0,0 +1,57 @@
++#include <Library/ConfigurationMapLib.h>
++
++STATIC
++EFI_CONFIGURATION_ENTRY_DESCRIPTOR
++gConfigurationDescriptor[] = {
++  // Configuration Map
++  {"EnableShell", 0x1},
++  {"SecPagePoolCount", 0x1800},
++  {"SharedIMEMBaseAddr", 0x14680000},
++  {"DloadCookieAddr", 0x01FD9000},
++  {"DloadCookieValue", 0x10},
++  {"SkipDBISetup", 0x0},
++  {"PilSubsysDbgCookieAddr", 0x146806DC},
++  {"PilSubsysDbgCookieVal", 0x53444247},
++  {"NumCpus", 8},
++  {"NumActiveCores", 8},
++  {"MaxLogFileSize", 0x400000},
++  {"UefiMemUseThreshold", 0xE1},
++  {"USBHS1_Config", 0x0},
++  {"UsbFnIoRevNum", 0x00010001},
++  {"PwrBtnShutdownFlag", 0x0},
++  {"Sdc1GpioConfigOn", 0x1E92},
++  {"Sdc2GpioConfigOn", 0x1E92},
++  {"Sdc1GpioConfigOff", 0xA00},
++  {"Sdc2GpioConfigOff", 0xA00},
++  {"EnableSDHCSwitch", 0x1},
++  {"EnableUfsIOC", 1},
++  {"UfsSmmuConfigForOtherBootDev", 1},
++  {"SecurityFlag", 0xC4},
++  {"DetectRetailUserAttentionHotkey", 0x00},
++  {"DetectRetailUserAttentionHotkeyCode", 0x17},
++  {"EnableOEMSetupAppInRetail", 0x0},
++  {"EnableLogFsSyncInRetail", 0x0},
++  {"EnableSecurityHoleForSplashPartition", 0x1},
++  {"ShmBridgememSize", 0xA00000},
++  {"EnableMultiThreading", 1},
++  {"EarlyInitCoreCnt", 2},
++  {"EnableUefiSecAppDebugLogDump", 0x0},
++  {"AllowNonPersistentVarsInRetail", 0x1},
++  {"EnableDisplayThread", 0x1},
++  {"EnableDisplayImageFv", 0x0},
++  {"DDRInfoNotifyFlag", 0x0},
++  {"EnableMultiCoreFvDecompression", 1},
++  {"EnableVariablePolicyEngine", 0},
++  {"EnableACPIFallback", 0x0},
++  {"DRAM_CLK_PERIOD_ADDR", 0x240BA050}
++};
++
++VOID
++GetConfigurationMap (
++  OUT EFI_CONFIGURATION_ENTRY_DESCRIPTOR **ConfigurationDescriptor,
++  OUT UINT8                               *ConfigurationDescriptorCount)
++{
++  // Pass Data
++  *ConfigurationDescriptor      = gConfigurationDescriptor;
++  *ConfigurationDescriptorCount = ARRAY_SIZE (gConfigurationDescriptor);
++}
+diff --git a/Platforms/OnePlus/caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf b/Platforms/OnePlus/caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf
+new file mode 100644
+index 00000000..c7b7ff71
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf
+@@ -0,0 +1,14 @@
++[Defines]
++  INF_VERSION                    = 0x00010005
++  BASE_NAME                      = ConfigurationMapLib
++  FILE_GUID                      = D7DDE228-62E4-43E3-B5A1-AB29FB9B0A35
++  MODULE_TYPE                    = BASE
++  VERSION_STRING                 = 1.0
++  LIBRARY_CLASS                  = ConfigurationMapLib
++
++[Sources]
++  ConfigurationMapLib.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++  QcomPkg/QcomPkg.dec
+diff --git a/Platforms/OnePlus/caihongPkg/Library/MemoryMapLib/MemoryMapLib.c b/Platforms/OnePlus/caihongPkg/Library/MemoryMapLib/MemoryMapLib.c
+new file mode 100644
+index 00000000..dd5dd1d4
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Library/MemoryMapLib/MemoryMapLib.c
+@@ -0,0 +1,62 @@
++#include <Library/MemoryMapLib.h>
++
++STATIC
++EFI_MEMORY_REGION_DESCRIPTOR
++gMemoryDescriptor[] = {
++  // Name, Address, Length, HobOption, ResourceType, ResourceAttribute, MemoryType, ArmAttribute
++
++  // DDR Regions
++  {"HYP",                 0x80000000, 0x01200000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"RSRV0",               0x816E0000, 0x00320000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"XBL_DT",              0x81A00000, 0x00040000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"XBL_Ramdump",         0x81A40000, 0x001C0000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"AOP",                 0x81C00000, 0x000A0000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"UEFI_Log",            0x81CE4000, 0x00010000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"SMEM",                0x81D00000, 0x00200000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"PvmFw",               0x824A0000, 0x00100000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"PIL_Reserved",        0x8BC00000, 0x17580000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"DBI_Dump",            0xA6100000, 0x00F00000, NoHob,  MMAP_IO, INITIALIZED, Conv,   UNCACHED_UNBUFFERED_XN},
++  {"FD_Reserved",         0xA7000000, 0x00100000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
++  {"UEFI_FD",             0xA7100000, 0x00300000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
++  {"UEFI_FD_Reserved",    0xA7400000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
++  {"Info_Blk",            0xA7601000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK_XN},
++  {"MMU_PageTables",      0xA7602000, 0x00003000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"Log_Buffer",          0xA7605000, 0x00008000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK_XN},
++  {"UEFI_Stack",          0xA760D000, 0x00040000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"SEC_Heap",            0xA764D000, 0x0008C000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"Sched_Heap",          0xA76D9000, 0x00400000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"FV_Region",           0xA7AD9000, 0x00400000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"UEFI_RESV",           0xA7ED9000, 0x00127000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"Kernel",              0xA8000000, 0x10000000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"DXE_Heap",            0xB8000000, 0x1BA00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
++  {"Display_Reserved",    0xD5100000, 0x02B00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH_XN},
++  {"TZApps_Reserved",     0xD8800000, 0x1B000000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++
++  // Other Memory Regions
++  {"IMEM_Base",           0x14680000, 0x0002A000, NoHob,  MMAP_IO, INITIALIZED, Conv,   NS_DEVICE},
++  {"IMEM_Cookie_Base",    0x146AA000, 0x00016000, AddDev, MMAP_IO, INITIALIZED, Conv,   NS_DEVICE},
++
++  // Register Regions
++  {"IPC_ROUTER_TOP",      0x00400000, 0x00100000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SECURITY_CONTROL",    0x00780000, 0x00007000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"QUP",                 0x00800000, 0x00300000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PRNG_CFG_PRNG",       0x010C0000, 0x0000C000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"CRYPTO0_CRYPTO",      0x01DC0000, 0x00040000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"CLK_TCSR_TCSR_REGS",  0x01F00000, 0x00100000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PERIPH_SS",           0x08800000, 0x00100000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"USB",                 0x0A600000, 0x00200000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"AOSS",                0x0B000000, 0x04000000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TLMM",                0x0F000000, 0x01000000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SMMU",                0x15000000, 0x00200000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"APSS_HM",             0x17000000, 0x02000000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE}
++};
++
++VOID
++GetMemoryMap (
++  OUT EFI_MEMORY_REGION_DESCRIPTOR **MemoryDescriptor,
++  OUT UINT8                         *MemoryDescriptorCount)
++{
++  // Pass Data
++  *MemoryDescriptor      = gMemoryDescriptor;
++  *MemoryDescriptorCount = ARRAY_SIZE (gMemoryDescriptor);
++}
+diff --git a/Platforms/OnePlus/caihongPkg/Library/MemoryMapLib/MemoryMapLib.inf b/Platforms/OnePlus/caihongPkg/Library/MemoryMapLib/MemoryMapLib.inf
+new file mode 100644
+index 00000000..b0fd0f2b
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/Library/MemoryMapLib/MemoryMapLib.inf
+@@ -0,0 +1,15 @@
++[Defines]
++  INF_VERSION                    = 0x00010005
++  BASE_NAME                      = MemoryMapLib
++  FILE_GUID                      = 375C4FF0-1905-4BA7-A5CA-7D40D25F5EF3
++  MODULE_TYPE                    = BASE
++  VERSION_STRING                 = 1.0
++  LIBRARY_CLASS                  = MemoryMapLib
++
++[Sources]
++  MemoryMapLib.c
++
++[Packages]
++  ArmPkg/ArmPkg.dec
++  MdePkg/MdePkg.dec
++  SiliciumPkg/SiliciumPkg.dec
+diff --git a/Platforms/OnePlus/caihongPkg/caihong.dec b/Platforms/OnePlus/caihongPkg/caihong.dec
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/Platforms/OnePlus/caihongPkg/caihong.dsc b/Platforms/OnePlus/caihongPkg/caihong.dsc
+new file mode 100644
+index 00000000..7f9f6a85
+--- /dev/null
++++ b/Platforms/OnePlus/caihongPkg/caihong.dsc
+@@ -0,0 +1,103 @@
++##
++#
++#  Copyright (c) 2011 - 2022, ARM Limited. All rights reserved.
++#  Copyright (c) 2014, Linaro Limited. All rights reserved.
++#  Copyright (c) 2015 - 2020, Intel Corporation. All rights reserved.
++#  Copyright (c) 2018, Bingxing Wang. All rights reserved.
++#  Copyright (c) Microsoft Corporation.
++#
++#  SPDX-License-Identifier: BSD-2-Clause-Patent
++#
++##
++
++################################################################################
++#
++# Defines Section - statements that will be processed to create a Makefile.
++#
++################################################################################
++[Defines]
++  PLATFORM_NAME                  = caihong
++  PLATFORM_GUID                  = 3E5A7C91-8B2D-4F46-9A15-C7D0E62F4B83
++  PLATFORM_VERSION               = 0.1
++  DSC_SPECIFICATION              = 0x00010005
++  OUTPUT_DIRECTORY               = Build/caihongPkg
++  SUPPORTED_ARCHITECTURES        = AARCH64
++  BUILD_TARGETS                  = RELEASE|DEBUG
++  SKUID_IDENTIFIER               = DEFAULT
++  FLASH_DEFINITION               = caihongPkg/caihong.fdf
++  USE_CUSTOM_DISPLAY_DRIVER      = 0
++
++  #
++  # 0 = SM8650-AA
++  # 1 = SM8650-Q-AA
++  # 2 = SM8650-AB
++  # 3 = SM8650-Q-AB
++  # 4 = SM8650-AC
++  #
++  SOC_TYPE                       = 2
++
++!include LanaiPkg/LanaiPkg.dsc.inc
++
++[PcdsFixedAtBuild]
++  #
++  # DDR Memory
++  #
++  gArmTokenSpaceGuid.PcdSystemMemoryBase|0x80000000
++
++  #
++  # UEFI Stack
++  #
++  gArmPlatformTokenSpaceGuid.PcdCPUCoresStackBase|0xA760D000
++  gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize|0x40000
++
++  #
++  # SMBIOS
++  #
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemManufacturer|"OnePlus"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"OnePlus Pad Pro"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemModel|"OnePlus Pad Pro"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemRetailSku|"OPD2404"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemBoardModel|"OPD2404"
++
++  #
++  # Simple Frame Buffer
++  #
++  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferWidth|3000
++  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferHeight|2120
++  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferColorDepth|32
++
++  #
++  # Platform PEI
++  #
++  gQcomPkgTokenSpaceGuid.PcdPlatformType|"LA"
++
++[LibraryClasses]
++  #
++  # UniXNU
++  #
++  UniXNULib|UniXNUPkg/Library/UniXNULib/UniXNULib.inf
++  FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
++
++  #
++  # Memory Libraries
++  #
++  MemoryMapLib|caihongPkg/Library/MemoryMapLib/MemoryMapLib.inf
++
++  #
++  # QCOM Libraries
++  #
++  ConfigurationMapLib|caihongPkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf
++
++[Components]
++  #
++  # UniXNU boot manager and the Darwin loader
++  #
++  caihongPkg/Drivers/CaihongInitrdDxe/CaihongInitrdDxe.inf
++  UniXNUPkg/Application/UniXNU/UniXNU.inf
++  UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
++  DarwinBootPkg/Driver/DarwinBoot.inf
++
++  #
++  # ACPI Tables
++  #
++  #caihong/AcpiTables.inf
+diff --git a/Resources/Configs/caihong.toml b/Resources/Configs/caihong.toml
+new file mode 100644
+index 00000000..e44cd229
+--- /dev/null
++++ b/Resources/Configs/caihong.toml
+@@ -0,0 +1,40 @@
++#
++# Device Status
++#
++[status]
++model_count = 1
++
++#
++# Boot Shim Configs
++#
++[boot_shim]
++requires_kernel_header = true
++
++#
++# UEFI FD Configs
++#
++[uefi_fd]
++base = 0xA7100000
++# 3 MB (0x300000) is exactly full for the RELEASE build, and a DEBUG build needs
++# room for the extra debug strings / assertions, so give the FD 4 MB.
++size = 0x400000
++
++#
++# Android Boot Image Kernel Configs
++#
++[boot_image_kernel]
++kernel_compression = "gzip"
++append_dtb         = true
++
++#
++# Android Boot Image Configs
++#
++# NOTE: the device now runs Android 16 (GKI boot image header v4).  With the
++# pre-OTA Android 15 firmware the ABL accepted this legacy v0 image; the newer
++# ABL rejects it ("Failed to load/authenticate boot image" and an instant reset
++# on the boot partition).  Match the reference giulia port and emit a v4 header.
++#
++[boot_image]
++header_version = 4
++os_version     = "16.0.0"
++os_patch_level = "2026-07"
+diff --git a/Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S b/Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S
+index 0c05ffa3..c16fe8c9 100644
+--- a/Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S
++++ b/Silicon/Silicium/SiliciumPkg/Sec/AArch64/ModuleEntryPoint.S
+@@ -13,6 +13,13 @@
+ .set CTRL_SPAN_BIT, BIT23
+ 
+ ASM_FUNC (_ModuleEntryPoint)
++  // Preserve the Android bootloader's FDT pointer before platform code uses x0.
++  adr   x1, ASM_PFX (gSecEntryArg0)
++  str   x0, [x1]
++  // SecEntry invalidates the FD cache; commit this slot before that happens.
++  dc    cvac, x1
++  dsb   sy
++
+   // Do Platform Specific Initialization
+   bl    ASM_PFX (PlatformAssemblyInitialize)
+ 
+@@ -61,3 +68,8 @@ ASM_PFX (MainEntryPoint):
+ 
+   // Do Infinite Spin
+   b     .
++
++  .align 3
++  .global ASM_PFX (gSecEntryArg0)
++ASM_PFX (gSecEntryArg0):
++  .quad 0
+diff --git a/Silicon/Silicium/SiliciumPkg/Sec/Sec.c b/Silicon/Silicium/SiliciumPkg/Sec/Sec.c
+index 8d586b35..ebb0c947 100644
+--- a/Silicon/Silicium/SiliciumPkg/Sec/Sec.c
++++ b/Silicon/Silicium/SiliciumPkg/Sec/Sec.c
+@@ -18,6 +18,8 @@
+ 
+ #include "Sec.h"
+ 
++extern UINT64 gSecEntryArg0;
++
+ #ifndef MDEPKG_NDEBUG
+ STATIC
+ VOID
+@@ -130,6 +132,9 @@ SecMain (VOID)
+     return;
+   }
+ 
++  // Publish the bootloader supplied argument (x0 = FDT pointer) for later phases.
++  BuildGuidDataHob (&gSiliciumEntryArgHobGuid, &gSecEntryArg0, sizeof (gSecEntryArg0));
++
+   // Run Library Cconstructors
+   ProcessLibraryConstructorList ();
+ 
+diff --git a/Silicon/Silicium/SiliciumPkg/Sec/Sec.inf b/Silicon/Silicium/SiliciumPkg/Sec/Sec.inf
+index 79afd196..8c3129e5 100644
+--- a/Silicon/Silicium/SiliciumPkg/Sec/Sec.inf
++++ b/Silicon/Silicium/SiliciumPkg/Sec/Sec.inf
+@@ -51,6 +51,7 @@
+   gArmMpCoreInfoPpiGuid
+ 
+ [Guids]
++  gSiliciumEntryArgHobGuid
+   gArmMpCoreInfoGuid
+ 
+ [Pcd]
+diff --git a/Silicon/Silicium/SiliciumPkg/SiliciumPkg.dec b/Silicon/Silicium/SiliciumPkg/SiliciumPkg.dec
+index 99cd6975..b3786173 100644
+--- a/Silicon/Silicium/SiliciumPkg/SiliciumPkg.dec
++++ b/Silicon/Silicium/SiliciumPkg/SiliciumPkg.dec
+@@ -8,6 +8,7 @@
+   Include                              # Root Include for the Package
+ 
+ [Guids]
++  gSiliciumEntryArgHobGuid            = { 0xDAEE82E6, 0x8090, 0x4E72, { 0xBF, 0xB9, 0x78, 0xC1, 0x3C, 0xD4, 0xE3, 0x59 } }
+   gSiliciumPkgTokenSpaceGuid          = { 0x055720A6, 0xA739, 0x0047, { 0xBE, 0xC1, 0x67, 0xFC, 0x38, 0x34, 0x54, 0x53 } }
+ 
+ [Protocols]
