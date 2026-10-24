@@ -190,9 +190,27 @@ def report(archive, candidate):
     print(f'display: {archive} {archive.stat().st_size} bytes')
 
 
-def main():
+def ensure_kernel():
+    """The bootstrap pass stops before the link, so there is no image to prelink.
+
+    Build one with the display switched off: the kext placement depends on the
+    kernelcache and the root set, not on this driver, so that image is a valid
+    parent for the candidate. The outer build then relinks with the archive.
+    """
+    if KERNEL.is_file():
+        return
+    print('display: building a kernel image to prelink against')
+    env = {**os.environ, 'XNU_NATIVE_MOBILE_DISPLAY': '0', 'XNU_BUILD_ARCHIVES': '1',
+           'XNU_BOOTSTRAP': '0'}
+    result = subprocess.run(['bash', ROOT / 'scripts/build-xnu-4k-baseline.sh'],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
     if not KERNEL.is_file():
-        fail(f'the bootstrap kernel is missing: {KERNEL}')
+        tail = '\n'.join((result.stdout or '').splitlines()[-15:])
+        fail(f'no kernel image to prelink against ({KERNEL})\n{tail}')
+
+
+def main():
+    ensure_kernel()
     if not EMIT.is_file():
         fail(f'{EMIT} is missing')
     cache = kernelcache()
