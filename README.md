@@ -297,3 +297,9 @@ if (EFI_ERROR (Status)) {
 3. **完整根卷**：`unixnu build userdata` 生成 `OS` + `Cryptex1,SystemOS`（约 8 GB），
    刷进 userdata（`first_lba=3769068`、`last_lba=123786234`、`lba_bytes=4096`）。
    注意 payload 与根卷不能共存于 userdata。
+
+## 致谢
+
+感谢 **Osilvfe** 大佬的指点与帮助，这个项目能走到这一步离不开他的建议。
+
+也感谢 UniXNU、Mu-Silicium、DarwinBoot 的作者和维护者。
