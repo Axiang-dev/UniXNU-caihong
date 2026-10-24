@@ -58,11 +58,12 @@ while index < len(arguments):
     elif value == '-o':
         command.extend(['-o', str(destination)])
         index += 1
-    elif value == '-Xclang' and arguments[index + 1].startswith('-W'):
+    elif value == '-Xclang' and arguments[index + 1].startswith(
+            ('-W', '-clang-vendor-feature=', '-fno-odr-hash-protocols')):
+        # Drop the pair: warnings we do not want, and Apple-internal switches the
+        # Xcode clang rejects. Skipping only the second half leaves -Xclang bare.
         index += 1
     elif value.startswith(('-clang-vendor-feature=', '-fno-odr-hash-protocols')):
-        # Apple-internal clang switches the kernel build passes through -Xclang;
-        # the Xcode clang used here rejects them as written.
         pass
     elif not value.startswith('-W'):
         command.append(value)
