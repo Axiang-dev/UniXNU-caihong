@@ -182,7 +182,10 @@ def compile_probe():
         elif argument == '-o':
             command.extend(['-o', str(OUT / 'MobileDisplayProviderProbe.o')])
             skip = True
-        elif argument == '-Xclang' or argument.startswith('-W'):
+        elif (argument == '-Xclang' or argument.startswith('-W')
+              or argument.startswith(('-clang-vendor-feature=', '-fno-odr-hash-protocols'))):
+            # Apple-internal switches the kernel build passes through -Xclang; the
+            # Xcode clang rejects them written out, so drop them with their pair.
             continue
         else:
             command.append(argument)
