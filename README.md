@@ -172,6 +172,32 @@ payload 必须独占 userdata；若要上完整 OS 根卷，需要先把 payload
 7. `Sec/Sec.inf` 的 `[Guids]` 加 `gSiliciumEntryArgHobGuid`
 8. `SiliciumPkg.dec` 的 `[Guids]` 定义 `gSiliciumEntryArgHobGuid`
 
+### 额外的固件补丁：启动失败时停住
+
+`UniXNU/package/UniXNUPkg/Library/UniXNULib/Main.c`，在 `UniXNUBootEntry` 返回错误后：
+
+```c
+if (EFI_ERROR (Status)) {
+  for ( ; ;) {
+    CpuDeadLoop ();
+  }
+}
+```
+
+否则 UniXNU 会立刻重画菜单，把 DarwinBoot 的报错（例如 `boot refused: Compromised Data`）
+覆盖掉，屏幕上看不到任何线索。注意只有返回 `EFI_ERROR` 才会停；
+返回 `EFI_SUCCESS` 但仍未启动的情况仍会回到菜单。
+
+### 已知的 UniXNU 菜单问题
+
+- **定时器只触发两三次就停**：倒计时永远卡在 `in 1 s`。
+- **`timeout = 0` 在部分固件构建里不生效**：菜单画出后无限等待，且不显示倒计时文字。
+- 菜单在 boot entry 返回后会置 `Countdown = FALSE`，改为无限等按键；
+  若此时按键无响应就彻底卡死。
+
+规避：把 `[boot] timeout` 设为 `0`（源码里 `RemainingMs == 0` 会直接返回默认项，
+完全不使用定时器）。
+
 ## 下一步
 
 1. **显示驱动**：把固件已在用的 GOP 帧缓冲包装成 IOKit `IOFramebuffer`，
