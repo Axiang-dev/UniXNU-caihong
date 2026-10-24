@@ -245,5 +245,84 @@ __attribute__((naked, used, section(".text.a_entry"))) void console_printf (cons
   __asm__ volatile ("mov x1, sp\n\tb console_printf_main");
 }
 
+
+/* --- heartbeat -------------------------------------------------------------
+ *
+ * idle_thread() calls machine_idle() in a loop; the patcher points that call
+ * here, so the screen keeps moving once the log goes quiet. Time comes from the
+ * ARM generic counter: the cadence does not depend on how often the CPU idles.
+ */
+#define TIMEBASE 19200000UL
+#define HEARTBEAT_SECONDS 5
+
+static u64 counter (void)
+{
+  u64 v;
+  __asm__ volatile ("isb; mrs %0, cntpct_el0" : "=r" (v) : : "memory");
+  return v;
+}
+
+static void load_cursor (struct ctx *g)
+{
+  volatile u32 *cursor = (volatile u32 *)(g->base + (u64)(g->h - 1) * g->rb + (u64)(g->w - 2) * 4);
+  u32 saved = cursor[0] ^ 0x434F4E53u;
+  g->x = saved & 0xFFFFu;
+  g->y = (saved >> 16) & 0xFFFFu;
+  if (g->x >= g->w || g->y + 14 * SCALE > g->h) {
+    g->x = 0;
+    g->y = 0;
+  }
+}
+
+static void store_cursor (struct ctx *g)
+{
+  volatile u32 *cursor = (volatile u32 *)(g->base + (u64)(g->h - 1) * g->rb + (u64)(g->w - 2) * 4);
+  cursor[0] = (((g->y & 0xFFFFu) << 16) | (g->x & 0xFFFFu)) ^ 0x434F4E53u;
+}
+
+__attribute__((used, section(".text.c_beat"))) void heartbeat_wrapper (void)
+{
+  void (*idle) (void) = (void (*) (void)) MACHINE_IDLE;
+  volatile struct vc_info *v = (volatile struct vc_info *)VINFO;
+  struct ctx g;
+  volatile u32 *slot;
+  u32 now, last;
+
+  idle ();
+
+  if (v->v_baseaddr == 0 || v->v_depth != 32 || v->v_rowbytes == 0 || v->v_width < 8) {
+    return;
+  }
+  now = (u32)(counter () / TIMEBASE);
+
+  g.base = (u8 *)v->v_baseaddr;
+  g.rb   = v->v_rowbytes;
+  g.w    = v->v_width;
+  g.h    = v->v_height;
+  slot = (volatile u32 *)(g.base + (u64)(g.h - 1) * g.rb + (u64)(g.w - 3) * 4);
+  last = *slot ^ 0x42454154u;
+  if (last == 0 || last > now || now - last < HEARTBEAT_SECONDS) {
+    *slot = now ^ 0x42454154u;
+    return;
+  }
+  *slot = now ^ 0x42454154u;
+
+  load_cursor (&g);
+  put (&g, '\n');
+  const char *label = "[XNU] alive ";
+  while (*label) {
+    put (&g, (u8)*label++);
+  }
+  number (&g, now, 10, 1, 0);
+  put (&g, 's');
+  put (&g, ' ');
+  put (&g, 'p');
+  put (&g, 'g');
+  number (&g, *(volatile const u32 *)PAGE_TOTAL, 10, 1, 0);
+  put (&g, '/');
+  number (&g, *(volatile const u32 *)PAGE_FREE, 10, 1, 0);
+  store_cursor (&g);
+}
+
 #include "Font.h"
 __attribute__((section(".text.z_font"))) const u64 gFont[] = GLYPH_FONT;

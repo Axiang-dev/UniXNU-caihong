@@ -25,7 +25,7 @@ spec = importlib.util.spec_from_file_location("probe", ROOT / "scripts" / "patch
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
-CAVE_MIN = 0xB00
+CAVE_MIN = 0xD00
 CAVE_ALIGN = 0x10
 
 
@@ -65,7 +65,7 @@ def find_cave(data, near_va):
     raise SystemExit(f"no {CAVE_MIN:#x} byte zero run in an executable segment")
 
 
-def assemble(source, va, workdir, vinfo_va):
+def assemble(source, va, workdir, vinfo_va, machine_idle, page_total, page_free):
     brew = "/opt/homebrew/opt/llvm/bin"
     tools = {}
     for name in ("clang", "ld.lld", "llvm-objcopy", "llvm-nm", "llvm-size", "llvm-objdump"):
@@ -79,7 +79,8 @@ def assemble(source, va, workdir, vinfo_va):
     obj, elf, binary = (workdir / n for n in ("console.o", "console.elf", "console.bin"))
     subprocess.run([clang, "--target=aarch64-none-elf", "-ffreestanding", "-fno-builtin",
                     "-fno-stack-protector", "-mgeneral-regs-only", "-fno-pic", "-mcmodel=tiny",
-                    "-Oz", f"-DVINFO={vinfo_va:#x}UL", f"-I{font_dir}", "-c", source,
+                    "-Oz", f"-DVINFO={vinfo_va:#x}UL", f"-DMACHINE_IDLE={machine_idle:#x}UL",
+                    f"-DPAGE_TOTAL={page_total:#x}UL", f"-DPAGE_FREE={page_free:#x}UL", f"-I{font_dir}", "-c", source,
                     "-o", obj], check=True)
     sizes = subprocess.run([size, "--format=berkeley", obj], capture_output=True, text=True,
                            check=True).stdout.splitlines()[-1].split()
@@ -98,13 +99,18 @@ def assemble(source, va, workdir, vinfo_va):
         if len(parts) >= 4 and parts[1] == ".text":
             load = int(parts[3], 16)
     entry = None
+    beat = None
     for line in subprocess.run([nm, elf], capture_output=True, text=True, check=True).stdout.splitlines():
         parts = line.split()
         if len(parts) == 3 and parts[2] == "console_printf":
             entry = int(parts[0], 16)
+        if len(parts) == 3 and parts[2] == "heartbeat_wrapper":
+            beat = int(parts[0], 16)
     if load is None or entry != load:
         raise SystemExit(f"console_printf must be the first byte (entry {entry}, load {load})")
-    return binary.read_bytes(), load, entry
+    if beat is None:
+        raise SystemExit("heartbeat_wrapper is missing")
+    return binary.read_bytes(), load, entry, beat
 
 
 def main():
@@ -127,9 +133,17 @@ def main():
     if first == 0 or first == 0xFFFFFFFF:
         raise SystemExit("printf() is not where the symbol table says")
 
+    table = probe.kernel_symbols(kernel)          # address -> name, for find_call
+    symbols = {name: va for va, name in table.items()}
+    for need in ("_machine_idle", "_processor_idle", "_max_mem", "_vm_page_pages", "_vm_page_free_count"):
+        if need not in symbols:
+            raise SystemExit(f"no {need} in the kernel")
+    call_va, callee = probe.find_call(data, table, "_processor_idle", "_machine_idle", 1)
+
     cave = find_cave(data, printf_va)
     with tempfile.TemporaryDirectory() as tmp:
-        code, load, entry = assemble(ROOT / "scripts" / "xnu-console.c", cave, Path(tmp), vinfo_va)
+        code, load, entry, beat = assemble(ROOT / "scripts" / "xnu-console.c", cave, Path(tmp), vinfo_va,
+                                           callee, symbols["_vm_page_pages"], symbols["_vm_page_free_count"])
     if load + len(code) > cave + CAVE_MIN:
         raise SystemExit(f"console code is {len(code):#x} bytes, the cave holds {CAVE_MIN:#x}")
     if any(data[probe.file_offset(load):probe.file_offset(load) + len(code)]):
@@ -137,9 +151,12 @@ def main():
 
     data[probe.file_offset(load):probe.file_offset(load) + len(code)] = code
     struct.pack_into("<I", data, probe.file_offset(printf_va), probe.branch(printf_va, entry))
+    # bl <heartbeat>: keep the call to machine_idle, then tick
+    delta = (beat - call_va) >> 2
+    struct.pack_into("<I", data, probe.file_offset(call_va), 0x94000000 | (delta & 0x3FFFFFF))
     kernel.write_bytes(data)
-    print(f"patched {kernel.name}: printf() at {printf_va:#x} -> console at {entry:#x} "
-          f"({len(code):#x} bytes)")
+    print(f"patched {kernel.name}: printf() at {printf_va:#x} -> console at {entry:#x}; "
+          f"idle call at {call_va:#x} -> heartbeat at {beat:#x} ({len(code):#x} bytes)")
 
 
 if __name__ == "__main__":
