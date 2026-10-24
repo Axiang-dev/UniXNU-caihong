@@ -120,6 +120,7 @@ jobs:
           path: |
             unixnu/out/caihong/kernel/kernel.json
             unixnu/out/caihong/kernel/*.json
+            unixnu/out/caihong/tree/archive-env.txt
           if-no-files-found: warn
           retention-days: 7
 
