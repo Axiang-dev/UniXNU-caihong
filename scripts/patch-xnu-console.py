@@ -25,7 +25,7 @@ spec = importlib.util.spec_from_file_location("probe", ROOT / "scripts" / "patch
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
-CAVE_MIN = 0x2400
+CAVE_MIN = 0xB00
 CAVE_ALIGN = 0x10
 
 
