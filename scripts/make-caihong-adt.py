@@ -95,6 +95,18 @@ def main():
         ('compatible', b'qcom,pineapple-mtp\0qcom,pineapple\0qcom,pineapplep\0'),
         ('#address-cells', u32(2)), ('#size-cells', u32(2)),
     ], [
+        # The UFS controller sits at the same address as the reference board; the
+        # driver matches on this node so the block class can publish userdata.
+        node('ufshc', [
+            ('compatible', b'qcom,sm8650-ufshc\0qcom,ufshc\0jedec,ufs-2.0\0'),
+            ('reg', u32(0) + u32(0x1d84000) + u32(0) + u32(0x3000)),
+            ('#address-cells', u32(2)), ('#size-cells', u32(2)),
+        ], [
+            node('ufsphy', [
+                ('compatible', b'qcom,sm8650-qmp-ufs-phy\0qcom,sm8550-qmp-ufs-phy\0'),
+                ('reg', u32(0) + u32(0x1d87000) + u32(0) + u32(0x1000)),
+            ]),
+        ]),
         node('chosen', [('random-seed', os.urandom(64)),
                         ('osenvironment', b'main\0'),
                         *([('ephemeral-storage', u32(1))] if args.data_ramdisk else []),
