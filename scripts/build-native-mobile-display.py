@@ -24,7 +24,8 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path.cwd()
-OUT = ROOT / 'build' / 'native-mobile-display'
+OUT = ROOT / 'build' / 'gop-framebuffer'
+DRIVER = ROOT / 'drivers/GopFramebuffer' if (ROOT / 'drivers/GopFramebuffer').is_dir() else ROOT / 'drivers/NativeMobileDisplay'
 CANDIDATE = ROOT / 'build' / 'native-prelink' / 'native-owner-mobile-graphics-candidate.macho'
 KERNEL = ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf'
 EMIT = ROOT / 'kits/NativePrelink/emit_prelink.py'
@@ -225,7 +226,7 @@ def build_archive():
          '--globalize-symbol=__GLOBAL__sub_I_NativeMobileDisplay.cpp', obj, late])
 
     probe = compile_probe()
-    archive = OUT / 'libNativeMobileDisplay.late.a'
+    archive = OUT / 'libGopFramebuffer.late.a'
     archive.unlink(missing_ok=True)
     run(['xcrun', 'ar', 'rcs', archive, late, OUT / 'original-bindings.o', probe])
     return archive
@@ -235,13 +236,13 @@ def report(archive, candidate):
     sources = sorted({p.name for p in OUT.iterdir() if p.is_file()})
     document = {
         'kit_revision': subprocess.check_output(
-            ['git', '-C', str(ROOT / 'drivers/NativeMobileDisplay'), 'rev-parse', 'HEAD'],
+            ['git', '-C', str(DRIVER), 'rev-parse', 'HEAD'],
             text=True).strip(),
         'archive_sha256': sha(archive),
         'candidate_sha256': sha(candidate),
-        'source_sha256': {f'drivers/NativeMobileDisplay/{name}': sha(ROOT / 'drivers/NativeMobileDisplay' / name)
+        'source_sha256': {f'drivers/NativeMobileDisplay/{name}': sha(DRIVER / name)
                           for name in ('NativeMobileDisplay.cpp', 'OriginalMobileFramebufferABI.h')
-                          if (ROOT / 'drivers/NativeMobileDisplay' / name).is_file()},
+                          if (DRIVER / name).is_file()},
         'objects': sources,
         'addresses': {'c2': IOMFB_C2, 'd2': IOMFB_D2, 'metaclass': IOMFB_METACLASS},
     }
@@ -264,7 +265,7 @@ def stub_archive():
     sdk = run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
     run(['xcrun', 'clang', '-target', 'arm64-apple-ios17.0', '-isysroot', sdk, '-Werror',
          '-c', source, '-o', OUT / 'stub.o'])
-    archive = OUT / 'libNativeMobileDisplay.late.a'
+    archive = OUT / 'libGopFramebuffer.late.a'
     archive.unlink(missing_ok=True)
     run(['xcrun', 'ar', 'rcs', archive, OUT / 'stub.o'])
     (OUT / 'build-report.json').write_text(json.dumps({'archive_sha256': sha(archive)}, indent=2) + '\n')
