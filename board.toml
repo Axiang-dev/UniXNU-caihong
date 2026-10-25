@@ -58,6 +58,7 @@ archives = [
   "build-libpthread-kernel.py",
   "build-arm-driver.py CaihongPmgrNub",
   "build-arm-driver.py NativeUfs",
+  "build-native-mobile-display.py",
 ]
 
 [kernel.prelink]
