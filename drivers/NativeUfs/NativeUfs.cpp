@@ -110,6 +110,8 @@ static bool contains (const char *data, size_t length, const char *needle)
 IOService *NativeUfs::probe (IOService *provider, SInt32 *score)
 {
   native_ufs_probe_calls = native_ufs_probe_calls + 1;
+  printf ("XNU ufs: probe %u, provider %s\n", native_ufs_probe_calls,
+          provider ? provider->getMetaClass ()->getClassName () : "none");
   if (OSDynamicCast (IOPlatformExpertDevice, provider)) {
     // Second personality (KernelConfigTables: IOMatchCategory NativeUfsRoot): attaches to the
     // root device, which starts before the platform expert publishes IOResources, so the
@@ -1829,9 +1831,13 @@ bool NativeUfs::start (IOService *provider)
   PE_parse_boot_argn ("native-ufs-allow-unverified", &allowUnverified, sizeof (allowUnverified));
   gAllowUnverifiedRoot = allowUnverified == 1;
   native_ufs_probe_requested = probe != 0;
+  printf ("XNU ufs: start, probe=%u root=%u provider %s\n", probe, rootMode,
+          provider ? provider->getMetaClass ()->getClassName () : "none");
   // Default: match for observability only, never touch the controller. Hardware work runs once,
   // from the root-device personality; the ufshc nub match stays observation-only.
   if ((!probe && !rootMode) || !OSDynamicCast (IOPlatformExpertDevice, provider)) {
+    printf ("XNU ufs: start refused, probe=%u root=%u expert=%u\n", probe, rootMode,
+            OSDynamicCast (IOPlatformExpertDevice, provider) != nullptr);
     return false;
   }
   unsigned diagnostic = 0;
