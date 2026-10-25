@@ -113,17 +113,6 @@ jobs:
         working-directory: unixnu
         run: ./unixnu build userdata -D ../device --dry-run
 
-      - name: Keep the kernel prelink plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-plan
-          path: |
-            unixnu/out/caihong/kernel/kernel.json
-            unixnu/out/caihong/kernel/*.json
-            unixnu/out/caihong/tree/archive-env.txt
-          if-no-files-found: warn
-          retention-days: 7
-
       - name: Upload the kernel
         if: always()
         uses: actions/upload-artifact@v4
