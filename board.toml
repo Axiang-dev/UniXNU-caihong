@@ -57,8 +57,8 @@ archives = [
   "build-arm-driver.py ArmCpu",
   "build-libpthread-kernel.py",
   "build-arm-driver.py CaihongPmgrNub",
-  "build-sheng-ufs.py",
   "build-native-mobile-display.py",
+  "build-sheng-ufs.py",
 ]
 
 [kernel.prelink]
