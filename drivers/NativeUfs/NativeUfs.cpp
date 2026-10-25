@@ -508,6 +508,18 @@ void NativeUfs::adoptAndRead (unsigned level)
     (void) ignoredValue;
   }
   if (level == 4) {
+    // Which LUN carries the data is board specific (this board keeps boot_a on
+    // LUN 4), so ask every LUN in one pass instead of one flash per guess.
+    char lunReport[512];
+    int used = snprintf (lunReport, sizeof (lunReport), "LUN scan (ocs/resp/scsi):");
+    for (uint8_t lun = 0; lun < 8; lun++) {
+      uint8_t tur[6] = { 0, 0, 0, 0, 0, 0 };
+      UfsResult each = command (lun, tur, 6, false, 0);
+      used += snprintf (lunReport + used, sizeof (lunReport) - used, " %u:%x/%x/%x",
+                        lun, each.ocs, each.response, each.scsi);
+      if (used >= (int)sizeof (lunReport) - 24) break;
+    }
+    panic ("NATIVE_UFS adopt: %s", lunReport);
     uint8_t tur0[6] = { 0, 0, 0, 0, 0, 0 };
     UfsResult t = command (0, tur0, 6, false, 0);
     const uint8_t *rsp0 = virt + ucdOffset + rspOffset;
