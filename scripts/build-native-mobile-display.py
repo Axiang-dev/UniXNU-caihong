@@ -287,8 +287,10 @@ def ensure_kernel():
     result = subprocess.run(['bash', ROOT / 'scripts/build-xnu-4k-baseline.sh'],
                             cwd=ROOT, env=env, capture_output=True, text=True)
     if not KERNEL.is_file():
-        tail = '\n'.join((result.stdout or '').splitlines()[-15:])
-        fail(f'no kernel image to prelink against ({KERNEL})\n{tail}')
+        stdout_tail = '\n'.join((result.stdout or '').splitlines()[-25:])
+        stderr_tail = '\n'.join((result.stderr or '').splitlines()[-25:])
+        fail(f'no kernel image to prelink against ({KERNEL}); '
+             f'build exited {result.returncode}\n--- stdout ---\n{stdout_tail}\n--- stderr ---\n{stderr_tail}')
 
 
 def main():
