@@ -11,6 +11,7 @@ struct RootWindow {
 
 struct RootLayout {
   uint64_t userdataFirst, userdataLast;   // 4096-byte LBAs on LUN 0
+  uint64_t rootOffset;                    // bytes into the partition where the root image starts
   uint64_t imageBytes;                    // size of the flashed root image from the manifest (0 when none)
   uint64_t gptEntriesLba;                 // GPT facts recorded for the persistent store's before/after comparison
   uint32_t gptHeaderCrc, gptEntriesCrc, gptEntryCount;
@@ -144,8 +145,14 @@ static bool findRootLayout (RootLayout *layout, const char **why)
   gRootDiagnostic.first = layout->userdataFirst;
   gRootDiagnostic.last = layout->userdataLast;
   gRootDiagnostic.stage = "root manifest";
-  // First block of the partition: manifest if the root image was flashed, ext4 otherwise.
-  if (hostRead4k (0, layout->userdataFirst, 1, gScratch) != kIOReturnSuccess) {
+  // The payload FAT volume occupies the start of the partition, so the root image
+  // may be parked past it. The offset is in MiB and defaults to zero.
+  unsigned rootOffsetMib = 0;
+  PE_parse_boot_argn ("native-ufs-root-offset-mib", &rootOffsetMib, sizeof (rootOffsetMib));
+  layout->rootOffset = uint64_t (rootOffsetMib) << 20;
+  uint64_t manifestLba = layout->userdataFirst + layout->rootOffset / 4096ULL;
+  // Manifest block if the root image was flashed, ext4 otherwise.
+  if (hostRead4k (0, manifestLba, 1, gScratch) != kIOReturnSuccess) {
     *why = "userdata first block read";
     return false;
   }
