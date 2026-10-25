@@ -52,10 +52,14 @@ void native_mobile_display_provider_probe(void) {
         uint32_t direct_width = 0, direct_height = 0;
         void **vtable = *(void ***)provider;
         typedef void (*dimensions_fn)(void *, uint32_t *, uint32_t *);
-        dimensions_fn direct = (dimensions_fn)vtable[2 + 249];
+        // The vptr points straight at the first virtual slot; entry 249 is
+        // getDisplayDimensions and 182 is beforeExternalMethod.
+        dimensions_fn direct = (dimensions_fn)vtable[249];
+        typedef IOReturn (*ready_fn)(void *);
+        IOReturn ready = ((ready_fn)vtable[182])(provider);
         direct(provider, &direct_width, &direct_height);
-        printf("XNU display: direct provider %ux%u, parent match %u\n",
-               direct_width, direct_height, (unsigned)native_mobile_provider_parent_match);
+        printf("XNU display: direct provider %ux%u, ready=%d, parent match %u\n",
+               direct_width, direct_height, (int)ready, (unsigned)native_mobile_provider_parent_match);
     }
     PE_Video video = {};
     PE_current_console(&video);
