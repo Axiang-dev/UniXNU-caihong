@@ -57,7 +57,7 @@ archives = [
   "build-arm-driver.py ArmCpu",
   "build-libpthread-kernel.py",
   "build-arm-driver.py CaihongPmgrNub",
-  "build-arm-driver.py NativeUfs",
+  "build-sheng-ufs.py",
   "build-native-mobile-display.py",
 ]
 
