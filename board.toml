@@ -46,7 +46,7 @@ windows = [
 ]
 
 [kernel]
-defconfig = "caihong-ufs_defconfig"
+defconfig = "caihong_defconfig"
 # Archive builders of the kernel step, in order. Each is a script of the build
 # tree with its arguments; build-arm-driver.py compiles a driver from drivers/
 # against the ABI recorded by the bootstrap pass.
