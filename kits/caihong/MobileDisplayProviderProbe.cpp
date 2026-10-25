@@ -46,6 +46,17 @@ void native_mobile_display_provider_probe(void) {
     printf("XNU display: stage 3, provider=%p\n", provider);
     if (!provider) { native_mobile_display_provider_checkpoint(); return; }
     native_mobile_provider_parent_match = provider->metaCast("IOMobileFramebuffer") != nullptr;
+    // Ask the provider itself, not through the client, so a zero answer says
+    // whether the override or the original dispatch path is at fault.
+    {
+        uint32_t direct_width = 0, direct_height = 0;
+        void **vtable = *(void ***)provider;
+        typedef void (*dimensions_fn)(void *, uint32_t *, uint32_t *);
+        dimensions_fn direct = (dimensions_fn)vtable[2 + 249];
+        direct(provider, &direct_width, &direct_height);
+        printf("XNU display: direct provider %ux%u, parent match %u\n",
+               direct_width, direct_height, (unsigned)native_mobile_provider_parent_match);
+    }
     PE_Video video = {};
     PE_current_console(&video);
     native_mobile_provider_expected[0] = video.v_width;
