@@ -39,6 +39,9 @@ jobs:
         with:
           repository: UniXNU/UniXNU
           path: unixnu
+          # Pinned: the driver layout this port was qualified against. Upstream
+          # moved on 2026-10-25 and the archive checks changed shape.
+          ref: c62bf12595f9a86c1b7282cf12d5af40b441fdac
           # drivers/ are submodules; without them the kernel links without the
           # display probes and fails on undefined symbols.
           submodules: recursive
