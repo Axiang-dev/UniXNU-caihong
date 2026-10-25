@@ -25,7 +25,10 @@ if args.negative_verified_block and not args.verified_root:
 component = args.component
 recipe = ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json'
 record = json.loads(recipe.read_text().strip().rstrip(','))
-source = ROOT / 'drivers' / ('NativeMobileDisplay' if component in ('NativeLegacyDisplay','NativeGOPPresenter') else 'NativeMetal' if component in ('NativeOfflineGPU','NativeOfflineAccelerator','NativeIOGPUProviderProbe') else component) / {'NativeAdreno':'NativeAdrenoService.cpp'}.get(component, component + '.cpp')
+# Upstream renamed the display driver directory to GopFramebuffer; the sources
+# inside still carry the original names.
+_display_dir = 'GopFramebuffer' if (ROOT / 'drivers/GopFramebuffer').is_dir() else 'NativeMobileDisplay'
+source = ROOT / 'drivers' / (_display_dir if component in ('NativeMobileDisplay','NativeLegacyDisplay','NativeGOPPresenter') else 'NativeMetal' if component in ('NativeOfflineGPU','NativeOfflineAccelerator','NativeIOGPUProviderProbe') else component) / {'NativeAdreno':'NativeAdrenoService.cpp'}.get(component, component + '.cpp')
 out = ROOT / 'build' / {'ArmVirtPlatform': 'armvirt-platform', 'ArmDTPlatform': 'armdt-platform', 'ArmCpu': 'armcpu', 'NativeAES': 'native-aes',
                         'NativeVirtioBlock': 'native-virtio-block', 'NativeRamBlock': 'native-ram-block',
                         'NativeMobileDisplay': 'native-mobile-display', 'NativeVirtioConsole': 'native-virtio-console',
