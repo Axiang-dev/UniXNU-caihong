@@ -1901,7 +1901,7 @@ bool NativeUfs::start (IOService *provider)
     uint32_t sig[4][2] = {};
     uint32_t seen[4] = {};
     for (uint32_t index = 0; index < layout->windows && index < 4; index++) {
-      uint64_t absolute = layout->userdataFirst * 4096ULL + layout->window[index].offset;
+      uint64_t absolute = layout->userdataFirst * 4096ULL + layout->rootOffset + layout->window[index].offset;
       if (hostRead4k (0, absolute / 4096, 1, gScratch) == kIOReturnSuccess) {
         seen[index] = 1;
         sig[index][0] = le32 (gScratch + 512);
@@ -2015,7 +2015,7 @@ bool NativeUfs::startRoot (IOService *provider)
       gPendingDevice[index] = device;
       gPendingAttached[index] = false;
       gPendingUuid[index][0] = 0;
-      uint64_t absolute = layout->userdataFirst * 4096ULL + layout->window[index].offset;
+      uint64_t absolute = layout->userdataFirst * 4096ULL + layout->rootOffset + layout->window[index].offset;
       if (!device || !device->init (static_cast<OSDictionary *> (nullptr)) ||
           !device->configure (layout->window[index].name, absolute, layout->window[index].size)) return false;
       gRootDiagnostic.stage = "root window attachment";
