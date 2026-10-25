@@ -30,6 +30,18 @@ def main():
         raise SystemExit(f'NativeUfs did not build ({result.returncode})')
     if not SOURCE.is_file():
         raise SystemExit(f'{SOURCE} was not produced')
+
+    # The class derives from IOBlockStorageDevice, whose symbols are stripped
+    # from the prelinked kext. Bind them to the addresses the pinned original
+    # candidate uses, then rebuild the archive with the bindings inside.
+    bindings = subprocess.run([sys.executable, str(ROOT / 'scripts/build-ufs-original-bindings.py'),
+                               '--component', 'NativeUfs'],
+                              capture_output=True, text=True, timeout=1800)
+    print((bindings.stdout or '').strip())
+    if bindings.returncode:
+        print((bindings.stdout or '')[-3000:])
+        print((bindings.stderr or '')[-3000:])
+        raise SystemExit(f'the storage bindings did not resolve ({bindings.returncode})')
     OUT.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SOURCE, TARGET)
     digest = hashlib.sha256(TARGET.read_bytes()).hexdigest()
