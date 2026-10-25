@@ -13,13 +13,8 @@ on:
         description: 'IPSW URL or path to also prelink the kernel (optional)'
         required: false
         type: string
-  push:
-    branches: [main]
-    paths:
-      - 'board.toml'
-      - 'configs/**'
-      - 'scripts/**'
-      - '.github/workflows/kernel.yml'
+  # Manual only: a push used to start an eight minute macOS build, and the port
+  # commits in bursts, so the queue filled with runs nobody asked for.
 
 permissions:
   contents: read
