@@ -4,6 +4,10 @@ struct UfsSmmuPlan {
   unsigned slot = 0xffffffffU, bank = 0, pages = 0;
   uint32_t smr = 0, s2cr = 0;
   bool reuse = false;
+  // Set when the firmware already had our stream on another context bank: the
+  // slot is ours, only the bank it points at changes.
+  bool repoint = false;
+  uint32_t previousS2cr = 0;
   const char *error = nullptr;
 };
 // ARM IHI 0062D.c sections 1.6 and 3.7: VA64=0 still rejects inputs above
@@ -56,9 +60,15 @@ static UfsSmmuPlan planUfsSmmuBank(uint16_t stream, uint64_t dma, uint64_t bytes
     bool ourBank = ((s2cr >> 16) & 3) == 0 && (s2cr & 255) == p.bank;
     if (match) {
       ++matches;
-      if (matches > 1 || mask || !ourBank) {
+      if (matches > 1 || mask) {
         p.slot = i; p.smr = smr; p.s2cr = s2cr;
         p.error = "conflicting UFS stream mapping"; return p;
+      }
+      // The firmware leaves our own stream on whichever context bank it used.
+      // Repointing that entry at the reserved bypass bank only changes where our
+      // stream goes, so it is safe to take the slot over instead of refusing.
+      if (!ourBank) {
+        p.repoint = true; p.previousS2cr = s2cr;
       }
       p.reuse = true; p.slot = i;
     } else if (ourBank) {
@@ -67,7 +77,8 @@ static UfsSmmuPlan planUfsSmmuBank(uint16_t stream, uint64_t dma, uint64_t bytes
     }
   }
   uint32_t sctlr = read((p.pages + p.bank) * 4096);
-  if ((sctlr & 1) || (p.reuse && (sctlr || read(0x1000 + 4 * p.bank) != 0x10000 ||
+  bool configured = p.reuse && !p.repoint;
+  if ((sctlr & 1) || (configured && (sctlr || read(0x1000 + 4 * p.bank) != 0x10000 ||
                                 (read(0x1800 + 4 * p.bank) & ~1U)))) {
     p.error = "reserved context bank not bypass"; return p;
   }
@@ -107,15 +118,18 @@ static const char *configureUfsSmmu(const UfsSmmuPlan &p, uint16_t stream, Read 
 {
   if (p.error) return p.error;
   unsigned cb = (p.pages + p.bank) * 4096;
-  if (!p.reuse) write(cb, 0);
+  const bool fresh = !p.reuse || p.repoint;
+  if (fresh) write(cb, 0);
   if (read(cb) != 0) return "SMMU bypass disable readback";
   // Set VA64 before exposing a newly allocated stream. Repair an exclusive
   // existing 32-bit bypass too; do not silently reuse the faulty state.
   if (read(0x1800 + 4 * p.bank) != 1) write(0x1800 + 4 * p.bank, 1);
-  if (!p.reuse) write(0x1000 + 4 * p.bank, 0x10000);
+  if (fresh) write(0x1000 + 4 * p.bank, 0x10000);
   if (read(0x1800 + 4 * p.bank) != 1 || read(0x1000 + 4 * p.bank) != 0x10000 || read(cb) != 0)
     return "SMMU VA64 bypass readback";
-  if (!p.reuse) {
+  // A reused slot normally already points at our bank. When the firmware had our
+  // stream on another bank the slot is ours but the target is not, so write it.
+  if (fresh) {
     write(0xc00 + 4 * p.slot, p.bank);
     if (read(0xc00 + 4 * p.slot) != p.bank) return "SMMU stream context readback";
     write(0x800 + 4 * p.slot, 0x80000000U | stream);
