@@ -92,9 +92,17 @@ def main():
         require(raw.exists(), f'{raw} is not present')
         sys.path.insert(0, str(args.manifest_tool.parent))
         import manifest as manifest_tool
-        info = plistlib.loads(subprocess.run(['diskutil', 'info', '-plist', device],
-                                            capture_output=True, check=True).stdout)
-        volume_uuid = info.get('VolumeUUID')
+        # The whole-disk node carries no volume identity; ask each partition.
+        volume_uuid = None
+        for slice_index in range(1, 5):
+            probe = subprocess.run(['diskutil', 'info', '-plist', f'{device}s{slice_index}'],
+                                   capture_output=True, text=True)
+            if probe.returncode:
+                continue
+            candidate = plistlib.loads(probe.stdout).get('VolumeUUID')
+            if candidate:
+                volume_uuid = candidate
+                break
         require(volume_uuid, 'the attached member has no volume UUID')
         print(f'policy: {args.component} {raw} ({image_bytes} bytes) uuid {volume_uuid}')
         with raw.open('rb', buffering=1 << 20) as stream:
