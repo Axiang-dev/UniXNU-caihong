@@ -74,6 +74,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./unixnu build kernel -D ../device -j "$(sysctl -n hw.ncpu)"
 
+      - name: Confirm the bring-up root auth patch reached the kernel
+        working-directory: unixnu
+        run: |
+          # The bring-up image continues past an unsealed root. Fail loudly if the
+          # patch did not reach the kernel instead of shipping one that panics.
+          kernel=out/caihong/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf
+          test -f "$kernel"
+          strings "$kernel" | grep -q "rootauth: no sealed root" && echo "root auth bypass present"
+
       - name: Prelink against the IPSW
         if: ${{ inputs.ipsw != '' }}
         working-directory: unixnu
