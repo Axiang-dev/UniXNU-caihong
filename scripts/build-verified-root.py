@@ -24,7 +24,8 @@ GENERATED = ROOT / 'build' / 'verified-root-os'
 COMMITTED = ROOT / 'policy' / 'os'
 SOURCE = GENERATED if (GENERATED / 'manifest.bin').is_file() else COMMITTED
 STAGE = GENERATED
-OUT = ROOT / 'build' / 'verified-root-os-xnu-bundle' / 'libVerifiedRootProbe.a'
+# --component os without --include-systemos publishes here.
+OUT = ROOT / 'build' / 'verified-root-os-xnu' / 'libVerifiedRootProbe.a'
 
 
 def main():
