@@ -1,0 +1,133 @@
+name: iosroot
+
+# Builds a plain HFS+ root image from the pinned iPadOS members.
+#
+# The OS member in this IPSW is the pre-seal source image, so APFS can never
+# authenticate it and the owner-root path is still unfinished. This assembles the
+# same system files into HFS+, which carries no sealed-system-volume concept, and
+# merges the SystemOS cryptex in place so the dyld shared cache lands where the
+# kernel looks for it.
+on:
+  workflow_dispatch:
+    inputs:
+      size_gib:
+        description: image size in GiB
+        default: '16'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Download the pinned IPSW
+        run: |
+          set -euxo pipefail
+          curl -L --retry 3 -o ipsw.zip \
+            "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+          ls -lh ipsw.zip
+
+      - name: Extract the OS and SystemOS members
+        run: |
+          set -euxo pipefail
+          mkdir -p dmg
+          unzip -o -j ipsw.zip '044-76040-038.dmg' '044-76034-038.dmg' -d dmg
+          shasum -a 256 dmg/*.dmg
+          # The members are pinned by digest; refuse anything else.
+          echo "3f99b859c9728379110b66657c7b15285bcb1925ad8b5726542e2cdcf8b1028d  dmg/044-76040-038.dmg" | shasum -a 256 -c -
+          echo "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f  dmg/044-76034-038.dmg" | shasum -a 256 -c -
+          ls -lh dmg
+
+      - name: Attach both members read-only
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/os /tmp/sysos
+          sudo hdiutil attach -nobrowse -readonly -mountpoint /tmp/os    dmg/044-76040-038.dmg
+          sudo hdiutil attach -nobrowse -readonly -mountpoint /tmp/sysos dmg/044-76034-038.dmg
+          ls /tmp/os | head
+          ls /tmp/sysos | head
+
+      - name: Create the HFS+ image and copy the system
+        run: |
+          set -euxo pipefail
+          size="${{ inputs.size_gib }}"
+          mkfile -n "${size}g" root.img
+          DEV=$(hdiutil attach -nomount -imagekey diskimage-class=CRawDiskImage root.img | head -1 | awk '{print $1}')
+          echo "device=$DEV"
+          newfs_hfs -s -J -v iOSRoot "$DEV"
+          hdiutil detach "$DEV" -force || true
+          hdiutil attach -nobrowse -owners on -imagekey diskimage-class=CRawDiskImage -mountpoint /Volumes/iOSRoot root.img
+          sudo rsync -aH --numeric-ids /tmp/os/ /Volumes/iOSRoot/
+          # The SystemOS cryptex supplies the dyld shared cache and the system
+          # apps; merging it puts the cache where the kernel looks for it.
+          sudo mkdir -p /Volumes/iOSRoot/private/preboot/Cryptexes/OS
+          sudo rsync -aH --numeric-ids /tmp/sysos/ /Volumes/iOSRoot/private/preboot/Cryptexes/OS/
+          df -h /Volumes/iOSRoot
+
+      - name: Expose the cryptex contents at the root
+        run: |
+          set -euxo pipefail
+          R=/Volumes/iOSRoot
+          dsc=private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld
+          sudo mkdir -p "$R/System/Library/Caches/com.apple.dyld"
+          for f in "$R/$dsc"/*; do
+            [ -e "$f" ] || continue
+            sudo ln "$f" "$R/System/Library/Caches/com.apple.dyld/${f##*/}" || true
+          done
+          (cd "$R/private/preboot/Cryptexes/OS" && sudo find . ! -type d ! -path './System/Library/Caches/com.apple.dyld/*') |
+          while IFS= read -r f; do
+            f=${f#./}
+            if ! sudo test -e "$R/$f" && ! sudo test -L "$R/$f"; then
+              sudo mkdir -p "$R/$(dirname "$f")"
+              src="$R/private/preboot/Cryptexes/OS/$f"
+              if sudo test -L "$src"; then sudo cp -P "$src" "$R/$f"; else sudo ln "$src" "$R/$f"; fi
+            fi
+          done
+          sudo ls -ln "$R/System/Library/Caches/com.apple.dyld" | head -5
+
+      - name: Normalise ownership of the system trees
+        run: |
+          set -euxo pipefail
+          R=/Volumes/iOSRoot
+          for d in System usr bin sbin Applications Library private/preboot; do
+            sudo chown -R 0:0 "$R/$d" || true
+          done
+
+      - name: Report the volume identity
+        run: |
+          set -euxo pipefail
+          # The kernel matches the root by this UUID, so it has to reach the board
+          # file before the next kernel build.
+          diskutil info -plist /Volumes/iOSRoot > /tmp/iOSRoot.plist || true
+          uuid=$(/usr/libexec/PlistBuddy -c 'Print :VolumeUUID' /tmp/iOSRoot.plist 2>/dev/null || echo none)
+          echo "IOSROOT_VOLUME_UUID=$uuid" | tee volume-uuid.txt
+          test "$uuid" != none
+
+      - name: Detach and report
+        run: |
+          set -euxo pipefail
+          df -h /Volumes/iOSRoot || true
+          sudo umount /Volumes/iOSRoot || hdiutil detach /Volumes/iOSRoot -force
+          ls -lh root.img
+          hdiutil detach /tmp/os -force || true
+          hdiutil detach /tmp/sysos -force || true
+
+      - name: Compress
+        run: |
+          set -euxo pipefail
+          gzip -1 root.img
+          ls -lh root.img.gz
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: iosroot
+          path: |
+            root.img.gz
+            volume-uuid.txt
+          compression-level: 0
+          retention-days: 3
