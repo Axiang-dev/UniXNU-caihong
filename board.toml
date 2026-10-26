@@ -59,6 +59,7 @@ archives = [
   "build-arm-driver.py CaihongPmgrNub",
   "build-native-mobile-display.py",
   "build-sheng-ufs.py",
+  "build-mockfs-fixture.py",
 ]
 
 [kernel.prelink]
