@@ -1724,6 +1724,13 @@ static void publishThread (void *, wait_result_t)
       if (!device->start (gPendingProvider)) return false;
       native_ufs_blocks_published = native_ufs_blocks_published + 1;
       printf ("NativeUfs: published %s\n", device->windowLabel ());
+      // The ADT's root-matching needs this UUID, so report it once the volume is up.
+      char volumeUuid[37];
+      if (device->signedVolumeUuid (volumeUuid)) {
+        printf ("NativeUfs: %s volume uuid %s\n", device->windowLabel (), volumeUuid);
+      } else {
+        printf ("NativeUfs: %s volume uuid unreadable\n", device->windowLabel ());
+      }
       return true;
     }
     bool wait (unsigned index) {
