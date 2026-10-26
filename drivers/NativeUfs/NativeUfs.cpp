@@ -1100,7 +1100,7 @@ extern "C" int native_ufs_store_open (uint64_t blocks, uint64_t *firstLba, const
     }
   }
   if (why) *why = reason;
-  IOLog ("NativeUfs: store open blocks=%llu first=%llx waited=%ums why=%s ok=%d\n",
+  printf ("NativeUfs: store open blocks=%llu first=%llx waited=%ums why=%s ok=%d\n",
       (unsigned long long)blocks, (unsigned long long)(ok && firstLba ? *firstLba : 0),
       waited * 10, reason, ok);
   return ok;
@@ -1723,7 +1723,7 @@ static void publishThread (void *, wait_result_t)
       gRootDiagnostic.publicationWindow = index;
       if (!device->start (gPendingProvider)) return false;
       native_ufs_blocks_published = native_ufs_blocks_published + 1;
-      IOLog ("NativeUfs: published %s\n", device->windowLabel ());
+      printf ("NativeUfs: published %s\n", device->windowLabel ());
       return true;
     }
     bool wait (unsigned index) {
@@ -1739,7 +1739,7 @@ static void publishThread (void *, wait_result_t)
         if (ready || tick == 300) break;
         IOSleep (100);
       }
-      IOLog ("NativeUfs: %s volume %s %s\n", device->windowLabel (), uuid, ready ? "ready" : "not ready");
+      printf ("NativeUfs: %s volume %s %s\n", device->windowLabel (), uuid, ready ? "ready" : "not ready");
       if (!ready) captureMissingMedia (uuid);
       return ready;
     }
@@ -1751,7 +1751,7 @@ static void publishThread (void *, wait_result_t)
     const char *reason = result.phase == UfsRootPhase::Start ? "root window service start failed" :
       (!strcmp (gPendingDevice[result.index]->windowLabel (), "SystemOS") ?
        "SystemOS signed volume not found" : "signed root window volume not found");
-    IOLog ("NativeUfs: root publisher stopped at window %u; published=%u\n", result.index, result.published);
+    printf ("NativeUfs: root publisher stopped at window %u; published=%u\n", result.index, result.published);
     // Start failures have already released their unpublished object; do not
     // dereference it here. The media-failure object is deliberately retained.
     rootDiagnosticFailure (reason);
@@ -1967,21 +1967,21 @@ bool NativeUfs::startRoot (IOService *provider)
   native_ufs_root_step = 1;
   if (!hostBringUp (&why)) {
     rootDiagnosticFailure (why);
-    IOLog ("NativeUfs: root bring-up failed: %s\n", why);
+    printf ("NativeUfs: root bring-up failed: %s\n", why);
     return false;
   }
   native_ufs_root_step = 2;
   RootLayout *layout = static_cast<RootLayout *> (IOMalloc (sizeof (RootLayout)));
   if (!layout || !findRootLayout (layout, &why)) {
     rootDiagnosticFailure (layout ? why : "root layout allocation failed");
-    IOLog ("NativeUfs: root layout failed: %s\n", why);
+    printf ("NativeUfs: root layout failed: %s\n", why);
     if (layout) IOFree (layout, sizeof (RootLayout));
     return false;
   }
   native_ufs_root_step = 3;
   if (layout->manifestStatus != 0) {
     rootDiagnosticFailure ("root manifest rejected");
-    IOLog ("NativeUfs: no valid root manifest in userdata (status %u, magic %08x %08x)\n",
+    printf ("NativeUfs: no valid root manifest in userdata (status %u, magic %08x %08x)\n",
            layout->manifestStatus, layout->magic0, layout->magic1);
     IOFree (layout, sizeof (RootLayout));
     return false;
@@ -2067,7 +2067,7 @@ bool NativeUfs::startRoot (IOService *provider)
     gPending = 0;
     gRootDiagnostic.result = result.phase == UfsRootPhase::Identity ? kIOReturnNotPrivileged :
       result.phase == UfsRootPhase::Schedule ? kIOReturnNoResources : kIOReturnError;
-    IOLog ("NativeUfs: root preparation failed phase=%u window=%u; nothing published\n",
+    printf ("NativeUfs: root preparation failed phase=%u window=%u; nothing published\n",
            static_cast<unsigned> (result.phase), result.index);
     IOService::stop (provider);
     rootDiagnosticFailure (result.phase == UfsRootPhase::Schedule ? "root publisher thread creation failed" :
