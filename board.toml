@@ -142,7 +142,9 @@ tool = "scripts/make-caihong-adt.py"
 # the real root volume instead of the stub ramdisk.
 # The APFS partition inside the OS window: the driver publishes the window, the
 # partition scheme publishes this volume, and XNU matches it.
-root_match_volume_uuid = "9232A33A-5F8A-4A09-9A43-E7D8BCFCF4BC"
+# The APFS volume UUID, as the porting guide and the reference ports use it;
+# the owner check compares this identity against the signed policy.
+root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 chip_id = "0x207"
 owned_memory_size = "0x80000000"
 cpu_regs = "0"
