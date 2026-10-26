@@ -103,6 +103,12 @@ def main():
             if candidate:
                 volume_uuid = candidate
                 break
+        if not volume_uuid:
+            # A bare APFS container attaches without a partition map, so the
+            # identity lives on the whole-disk node itself.
+            probe = subprocess.run(['diskutil', 'info', '-plist', device], capture_output=True, text=True)
+            if probe.returncode == 0:
+                volume_uuid = plistlib.loads(probe.stdout).get('VolumeUUID')
         require(volume_uuid, 'the attached member has no volume UUID')
         print(f'policy: {args.component} {raw} ({image_bytes} bytes) uuid {volume_uuid}')
         with raw.open('rb', buffering=1 << 20) as stream:
