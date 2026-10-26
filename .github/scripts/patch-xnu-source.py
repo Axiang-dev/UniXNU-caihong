@@ -156,7 +156,7 @@ def patch_rootauth_message(root):
     marker = chr(9) * 4 + 'panic("rootvp not authenticated after mounting");' + chr(10)
     if source.count(" " + marker) != 1:
         raise SystemExit(f"{target}: expected one root auth panic line")
-    line = 'bsd_init_kprintf("rootauth: no sealed root, continuing (autherr=%d)NEWLINE", autherr);'
+    line = 'printf("rootauth: no sealed root, continuing (autherr=%d)NEWLINE", autherr);'
     line = line.replace("NEWLINE", chr(92) + "n")
     # A context line turned into a -/+ pair keeps both hunk counts unchanged.
     source = source.replace(" " + marker, "-" + marker + "+" + chr(9) * 4 + line + chr(10))
