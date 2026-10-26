@@ -138,21 +138,27 @@ def patch_personality_cflags(root):
 
 
 def patch_rootauth_message(root):
-    """Report why the root was refused instead of the bare Apple wording."""
+    """Report the root auth result and continue instead of panicking.
+
+    The OS member in this IPSW is the pre-seal source image, so APFS can never
+    authenticate it and the bring-up would stop here. This keeps the check
+    visible in the log without stopping the boot, and must not ship.
+    """
     target = root / "patches" / "xnu" / "offline-owner-root-binding-audit.patch"
     if not target.is_file():
         raise SystemExit(f"{target} not found")
     source = target.read_text()
-    if "autherr=%d" in source:
+    if "rootauth: no sealed root" in source:
         print(f"{target} already patched")
         return
     marker = chr(9) * 4 + 'panic("rootvp not authenticated after mounting");' + chr(10)
-
-    if source.count(marker) != 1:
+    if source.count(" " + marker) != 1:
         raise SystemExit(f"{target}: expected one root auth panic line")
+    # A placeholder keeps the C escape out of this file entirely.
+    line = 'bsd_init_kprintf("rootauth: no sealed root, continuing (autherr=%d)NEWLINE", autherr);'
+    line = line.replace("NEWLINE", chr(92) + "n")
     # Turning the context line into a -/+ pair leaves both hunk counts unchanged.
-    source = source.replace(" " + marker, "-" + marker + "+" + marker.replace(
-        'mounting");', 'mounting autherr=%d", autherr);'))
+    source = source.replace(" " + marker, "-" + marker + "+" + chr(9) * 4 + line + chr(10))
     target.write_text(source)
     print(f"patched {target}")
 
