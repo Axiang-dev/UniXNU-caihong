@@ -137,12 +137,32 @@ def patch_personality_cflags(root):
     print(f"patched {target}")
 
 
+def patch_rootauth_message(root):
+    """Report why the root was refused instead of the bare Apple wording."""
+    target = root / "patches" / "xnu" / "offline-owner-root-binding-audit.patch"
+    if not target.is_file():
+        raise SystemExit(f"{target} not found")
+    source = target.read_text()
+    if "autherr=%d" in source:
+        print(f"{target} already patched")
+        return
+    marker = chr(9) * 4 + 'panic("rootvp not authenticated after mounting");' + chr(10)
+
+    if source.count(marker) != 1:
+        raise SystemExit(f"{target}: expected one root auth panic line")
+    # Turning the context line into a -/+ pair leaves both hunk counts unchanged.
+    source = source.replace(" " + marker, "-" + marker + "+" + marker.replace(
+        'mounting");', 'mounting autherr=%d", autherr);'))
+    target.write_text(source)
+    print(f"patched {target}")
+
 def main():
     root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "unixnu")
     patch_source(root)
     patch_probe(root)
     patch_personality(root)
     patch_personality_cflags(root)
+    patch_rootauth_message(root)
 
 
 if __name__ == "__main__":
