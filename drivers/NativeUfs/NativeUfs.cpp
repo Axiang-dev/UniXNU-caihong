@@ -1478,6 +1478,18 @@ bool NativeUfsBlock::start (IOService *provider)
   if (!bounce || !windowLock || !IOBlockStorageDevice::start (provider)) {
     return false;
   }
+  // Publish a stable UUID so the ADT's root-matching can select this volume before
+  // any file system exists. The APFS UUID needs the verified-block path, and the
+  // selector only has to be unique and stable, not the file system's own identity.
+  unsigned slot = (label[0] == 'O' && label[1] == 'S' && label[2] == 0) ? 1U : 2U;
+  char uuidText[37];
+  snprintf (uuidText, sizeof (uuidText), "00000000-0000-4000-8000-%012u", slot);
+  OSString *uuid = OSString::withCString (uuidText);
+  if (uuid) {
+    setProperty ("UUID", uuid);
+    uuid->release ();
+  }
+  printf ("NativeUfs: %s media uuid %s\n", label, uuidText);
   online = true;
   registerService ();
   return true;
@@ -1724,13 +1736,6 @@ static void publishThread (void *, wait_result_t)
       if (!device->start (gPendingProvider)) return false;
       native_ufs_blocks_published = native_ufs_blocks_published + 1;
       printf ("NativeUfs: published %s\n", device->windowLabel ());
-      // The ADT's root-matching needs this UUID, so report it once the volume is up.
-      char volumeUuid[37];
-      if (device->signedVolumeUuid (volumeUuid)) {
-        printf ("NativeUfs: %s volume uuid %s\n", device->windowLabel (), volumeUuid);
-      } else {
-        printf ("NativeUfs: %s volume uuid unreadable\n", device->windowLabel ());
-      }
       return true;
     }
     bool wait (unsigned index) {
