@@ -1,0 +1,70 @@
+name: userdata
+
+# Builds the userdata root image on a macOS runner.
+#
+# The image is assembled by attaching the IPSW disk images with hdiutil, which is
+# macOS only, so this cannot run on the Windows host. The result is uploaded as an
+# artifact and flashed by hand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw:
+        description: 'IPSW URL or path (defaults to the board.toml pin)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  userdata:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Check out UniXNU
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          path: unixnu
+          submodules: recursive
+
+      - name: Select the board configuration
+        working-directory: unixnu
+        run: ./unixnu defconfig caihong_defconfig -D ../device
+
+      - name: Fetch the pinned sources
+        working-directory: unixnu
+        run: ./unixnu fetch -D ../device
+
+      - name: Build the root image
+        working-directory: unixnu
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.ipsw }}" ]; then
+            ./unixnu build userdata -D ../device --ipsw "${{ inputs.ipsw }}"
+          else
+            ./unixnu build userdata -D ../device
+          fi
+
+      - name: Report the image
+        working-directory: unixnu
+        run: |
+          ls -la out/caihong/userdata/
+          cat out/caihong/userdata/userdata-root.json
+
+      - name: Upload the root image
+        uses: actions/upload-artifact@v4
+        with:
+          name: userdata-root
+          path: |
+            unixnu/out/caihong/userdata/userdata-root.img
+            unixnu/out/caihong/userdata/userdata-root.json
+          compression-level: 0
+          retention-days: 7
