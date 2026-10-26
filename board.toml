@@ -140,7 +140,9 @@ kernel_args = ["-v", "serial=3"]
 tool = "scripts/make-caihong-adt.py"
 # The UFS block class publishes this UUID for the OS window, so the kernel can pick
 # the real root volume instead of the stub ramdisk.
-root_match_volume_uuid = "00000000-0000-4000-8000-000000000001"
+# The APFS partition inside the OS window: the driver publishes the window, the
+# partition scheme publishes this volume, and XNU matches it.
+root_match_volume_uuid = "9232A33A-5F8A-4A09-9A43-E7D8BCFCF4BC"
 chip_id = "0x207"
 owned_memory_size = "0x80000000"
 cpu_regs = "0"
