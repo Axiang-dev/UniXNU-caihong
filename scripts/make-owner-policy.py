@@ -36,13 +36,17 @@ def require(condition, message):
 
 
 def attach(image):
-    out = subprocess.run(['hdiutil', 'attach', '-nomount', '-readonly', '-noverify', '-noautofsck', str(image)],
-                         capture_output=True, text=True, check=True).stdout
-    for line in out.splitlines():
-        fields = line.split()
-        if fields and fields[0].startswith('/dev/disk'):
-            return fields[0]
-    raise SystemExit('hdiutil did not report a device')
+    """Attach read-only and return (whole disk, volume devices) from the plist."""
+    out = subprocess.run(['hdiutil', 'attach', '-plist', '-nomount', '-readonly', '-noverify', '-noautofsck',
+                          str(image)], capture_output=True, text=True, check=True).stdout
+    entities = plistlib.loads(out)['system-entities']
+    whole = [e['dev-entry'] for e in entities if e.get('content-hint') == 'GUID_partition_scheme']
+    volumes = [e['dev-entry'] for e in entities if e.get('content-hint') not in (None, 'GUID_partition_scheme')]
+    if not whole:
+        whole = [e['dev-entry'] for e in entities[:1]]
+    if not whole:
+        raise SystemExit('hdiutil did not report a device')
+    return whole[0], volumes or [whole[0]]
 
 
 def detach(device):
@@ -86,29 +90,22 @@ def main():
         subprocess.run(['openssl', 'rsa', '-in', str(private_key), '-pubout', '-out', str(public_key)],
                        check=True, capture_output=True)
 
-    device = attach(args.image)
+    device, volumes = attach(args.image)
     try:
         raw = pathlib.Path('/dev/r' + pathlib.Path(device).name)
         require(raw.exists(), f'{raw} is not present')
         sys.path.insert(0, str(args.manifest_tool.parent))
         import manifest as manifest_tool
-        # The whole-disk node carries no volume identity; ask each partition.
+        # The identity lives on the volume entity, not on the whole disk.
         volume_uuid = None
-        for slice_index in range(1, 5):
-            probe = subprocess.run(['diskutil', 'info', '-plist', f'{device}s{slice_index}'],
-                                   capture_output=True, text=True)
+        for entity in volumes:
+            probe = subprocess.run(['diskutil', 'info', '-plist', entity], capture_output=True, text=True)
             if probe.returncode:
                 continue
             candidate = plistlib.loads(probe.stdout).get('VolumeUUID')
             if candidate:
                 volume_uuid = candidate
                 break
-        if not volume_uuid:
-            # A bare APFS container attaches without a partition map, so the
-            # identity lives on the whole-disk node itself.
-            probe = subprocess.run(['diskutil', 'info', '-plist', device], capture_output=True, text=True)
-            if probe.returncode == 0:
-                volume_uuid = plistlib.loads(probe.stdout).get('VolumeUUID')
         require(volume_uuid, 'the attached member has no volume UUID')
         print(f'policy: {args.component} {raw} ({image_bytes} bytes) uuid {volume_uuid}')
         with raw.open('rb', buffering=1 << 20) as stream:
