@@ -93,6 +93,12 @@ jobs:
           # patch did not reach the kernel instead of shipping one that panics.
           kernel=out/caihong/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf
           test -f "$kernel"
+          src=out/caihong/tree/.cache/xnu-work/bsd/kern/bsd_init.c
+          echo "--- source around the root auth check ---"
+          grep -n "rootvp not authenticated" "$src" || echo "no upstream panic in source"
+          grep -n "rootauth: no sealed root" "$src" || echo "no bring-up line in source"
+          echo "--- kernel strings ---"
+          strings "$kernel" | grep -c "rootvp not authenticated" || true
           strings "$kernel" | grep -q "rootauth: no sealed root" && echo "root auth bypass present"
 
       - name: Prelink against the IPSW
