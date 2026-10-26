@@ -283,9 +283,12 @@ def ensure_kernel():
         return
     print('display: building a kernel image to prelink against')
     stub_archive()
-    # The parent image only has to exist so the candidate can be made; storage is
-    # not part of it, and its archive is built after this step.
+    # The parent image only has to exist so the candidate can be made. Storage,
+    # mockfs and the owner checks all need archives that this step builds later,
+    # so they stay off here.
     env = {**os.environ, 'XNU_NATIVE_MOBILE_DISPLAY': '1', 'XNU_NATIVE_UFS': '0', 'XNU_SOURCE_MOCKFS': '0',
+           'XNU_NATIVE_AES': '0', 'XNU_NATIVE_VIRTIO_BLOCK': '0', 'XNU_VERIFIED_ROOT_PROBE': '0',
+           'XNU_OWNER_ROOT_AUDIT': '0', 'XNU_OWNER_ROOT_TRUST': '0',
            'XNU_BUILD_ARCHIVES': '1', 'XNU_BOOTSTRAP': '0'}
     result = subprocess.run(['bash', ROOT / 'scripts/build-xnu-4k-baseline.sh'],
                             cwd=ROOT, env=env, capture_output=True, text=True)
