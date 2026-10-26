@@ -35,7 +35,8 @@ def main():
     # from the prelinked kext. Bind them to the addresses the pinned original
     # candidate uses, then rebuild the archive with the bindings inside.
     bindings = subprocess.run([sys.executable, str(ROOT / 'scripts/build-ufs-original-bindings.py'),
-                               '--component', 'NativeUfs'],
+                               '--component', 'NativeUfs',
+                               '--objects-dir', str(ROOT / 'build' / 'native-ufs-verified')],
                               capture_output=True, text=True, timeout=1800)
     print((bindings.stdout or '').strip())
     if bindings.returncode:
