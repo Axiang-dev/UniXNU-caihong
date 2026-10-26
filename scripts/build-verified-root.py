@@ -18,8 +18,12 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path.cwd()
-SOURCE = ROOT / 'policy' / 'os'
-STAGE = ROOT / 'build' / 'verified-root-os'
+# `make-owner-policy.py` produces the policy in the build tree; a committed copy
+# under policy/os is used when there is one.
+GENERATED = ROOT / 'build' / 'verified-root-os'
+COMMITTED = ROOT / 'policy' / 'os'
+SOURCE = GENERATED if (GENERATED / 'manifest.bin').is_file() else COMMITTED
+STAGE = GENERATED
 OUT = ROOT / 'build' / 'verified-root-os-xnu-bundle' / 'libVerifiedRootProbe.a'
 
 
@@ -30,7 +34,8 @@ def main():
     for name in ('manifest.bin', 'trusted-key.bin', 'verification.json', 'original-samples.bin'):
         if not (SOURCE / name).is_file():
             raise SystemExit(f'{SOURCE / name} is missing')
-        shutil.copyfile(SOURCE / name, STAGE / name)
+        if SOURCE.resolve() != STAGE.resolve():
+            shutil.copyfile(SOURCE / name, STAGE / name)
     record = json.loads((STAGE / 'verification.json').read_text())
     print(f"verified root: {record['blocks_verified']} blocks, image {record['image_bytes']} bytes, "
           f"uuid {record['volume_uuid']}")
