@@ -39,6 +39,11 @@ def main():
     record = json.loads((STAGE / 'verification.json').read_text())
     print(f"verified root: {record['blocks_verified']} blocks, image {record['image_bytes']} bytes, "
           f"uuid {record['volume_uuid']}")
+    # The archive steps run before the parent kernel build, so the export header
+    # directories a full build creates are not all there yet. The recorded compile
+    # recipe names them and -Wmissing-include-dirs turns that into an error.
+    for name in ('libsa',):
+        (ROOT / 'build' / 'xnu' / 'ios-obj' / 'EXPORT_HDRS' / name).mkdir(parents=True, exist_ok=True)
     result = subprocess.run([sys.executable, str(ROOT / 'scripts/build-verified-root-probe.py'),
                              '--component', 'os'],
                             capture_output=True, text=True, timeout=3600)
