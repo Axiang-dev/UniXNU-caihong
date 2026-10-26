@@ -66,6 +66,16 @@ jobs:
         working-directory: unixnu
         run: ./unixnu tree -D ../device
 
+      - name: Fetch the OS member for the root policy
+        working-directory: unixnu
+        run: |
+          # The signed root policy is derived from the OS member, so it has to be
+          # on disk before the archives run.
+          os=$(./unixnu ipsw fetch OS -D ../device | tail -1)
+          echo "os member: $os"
+          test -f "$os"
+          echo "XNU_OS_MEMBER=$os" >> "$GITHUB_ENV"
+
       - name: Build the kernel
         working-directory: unixnu
         env:

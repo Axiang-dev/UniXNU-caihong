@@ -18,7 +18,9 @@ if args.verified_root_bundle and not args.verified_root:
     parser.error('A policy bundle requires verified block mode')
 if args.verified_root_bundle and args.negative_verified_block:
     parser.error('Select either bundle policy qualification or the isolated DMA snapshot fault')
-if (args.verified_root or args.negative_verified_block) and args.component != 'NativeVirtioBlock':
+# NativeUfs also serves verified reads: it authenticates its windows against the
+# same signed policy and exposes native_ufs_block_authenticates to the verifier.
+if (args.verified_root or args.negative_verified_block) and args.component not in ('NativeVirtioBlock', 'NativeUfs'):
     parser.error('Verified block mode requires the concrete read-only block transport')
 if args.negative_verified_block and not args.verified_root:
     parser.error('The isolated input fault requires verified block mode')
@@ -37,6 +39,8 @@ if args.verified_root:
     out = ROOT / ('build/native-virtio-block-verified-fault' if args.negative_verified_block else 'build/native-virtio-block-verified')
     if args.verified_root_bundle:
         out = ROOT / 'build/native-virtio-block-verified-bundle'
+    if component == 'NativeUfs':
+        out = ROOT / 'build/native-ufs-verified'
 out.mkdir(parents=True, exist_ok=True)
 if args.negative_aes_kat:
     if component != 'NativeAES':

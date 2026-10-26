@@ -16,13 +16,13 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path.cwd()
-SOURCE = ROOT / 'build' / 'native-ufs' / 'libNativeUfs.a'
+SOURCE = ROOT / 'build' / 'native-ufs-verified' / 'libNativeUfs.a'
 OUT = ROOT / 'build' / 'sheng-ufs'
 TARGET = OUT / 'libShengUfs.a'
 
 
 def main():
-    result = subprocess.run([sys.executable, str(ROOT / 'scripts/build-arm-driver.py'), 'NativeUfs'],
+    result = subprocess.run([sys.executable, str(ROOT / 'scripts/build-arm-driver.py'), 'NativeUfs', '--verified-root'],
                             capture_output=True, text=True, timeout=1800)
     if result.returncode:
         print((result.stdout or '')[-3000:])
