@@ -66,6 +66,18 @@ jobs:
         working-directory: unixnu
         run: ./unixnu tree -D ../device
 
+      - name: Check the tree carries the bring-up patch
+        working-directory: unixnu
+        run: |
+          for f in patches/xnu/offline-owner-root-binding-audit.patch \
+                   out/caihong/tree/patches/xnu/offline-owner-root-binding-audit.patch; do
+            if grep -q "rootauth: no sealed root" "$f" 2>/dev/null; then
+              echo "present: $f"
+            else
+              echo "MISSING: $f"
+            fi
+          done
+
       - name: Build the kernel
         working-directory: unixnu
         env:
