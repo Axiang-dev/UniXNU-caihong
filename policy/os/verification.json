@@ -1,0 +1,25 @@
+{
+  "image_bytes": 6077580800,
+  "blocks_verified": 1483785,
+  "image_sha256": "e5634d04a8ac35f024845f583394e0a35deb26a04cb0c00286a8674e25a9a4f2",
+  "volume_uuid": "04769D26-2CA0-4825-B443-E2E5F88300F2",
+  "generation": 1,
+  "trusted_key_sha256": "d1427a9aa7ace5279aa6f01def4c658134c611b778c668d18130a827fbb5165d",
+  "actual_sample_indices": [
+    0,
+    1,
+    741892,
+    1483784
+  ],
+  "actual_sample_lengths": [
+    4096,
+    4096,
+    4096,
+    1536
+  ],
+  "real_c_signature_and_block_verification": true,
+  "verification_method": "verified_root.c vr_open in C plus per-block compare against the authenticated table",
+  "original_image_modified": false,
+  "hardware_tested": false,
+  "boot_root_authenticated": false
+}
