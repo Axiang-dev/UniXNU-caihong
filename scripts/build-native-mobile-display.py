@@ -285,7 +285,7 @@ def ensure_kernel():
     stub_archive()
     # The parent image only has to exist so the candidate can be made; storage is
     # not part of it, and its archive is built after this step.
-    env = {**os.environ, 'XNU_NATIVE_MOBILE_DISPLAY': '1', 'XNU_NATIVE_UFS': '0',
+    env = {**os.environ, 'XNU_NATIVE_MOBILE_DISPLAY': '1', 'XNU_NATIVE_UFS': '0', 'XNU_SOURCE_MOCKFS': '0',
            'XNU_BUILD_ARCHIVES': '1', 'XNU_BOOTSTRAP': '0'}
     result = subprocess.run(['bash', ROOT / 'scripts/build-xnu-4k-baseline.sh'],
                             cwd=ROOT, env=env, capture_output=True, text=True)
