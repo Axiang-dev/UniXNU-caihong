@@ -62,6 +62,7 @@ archives = [
   "build-sheng-ufs.py",
   "build-arm-driver.py NativeVirtioBlock --verified-root",
   "make-owner-policy.py",
+  "make-owner-policy.py --component systemos",
   "build-verified-root.py",
   "build-mockfs-fixture.py",
 ]

@@ -22,9 +22,11 @@ import sys
 import uuid
 
 BLOCK = 4096
-OS_BYTES = 6077580800
-OS_BLOCKS = 1483785
-OS_UUID = '04769D26-2CA0-4825-B443-E2E5F88300F2'
+COMPONENTS = {
+    # component: (image bytes, block count, expected sha256)
+    'os': (6077580800, 1483785, 'e5634d04a8ac35f024845f583394e0a35deb26a04cb0c00286a8674e25a9a4f2'),
+    'systemos': (3303014400, 806400, 'b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f'),
+}
 SHA256_DIGEST_INFO = bytes.fromhex('3031300d060960864801650304020105000420')
 
 
@@ -58,16 +60,21 @@ def rsa_verify(key, digest, signature):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--image', type=pathlib.Path, help='the OS member of the IPSW (default: $XNU_OS_MEMBER)')
-    parser.add_argument('--output', type=pathlib.Path, default=pathlib.Path('build/verified-root-os'))
+    parser.add_argument('--component', choices=tuple(COMPONENTS), default='os')
+    parser.add_argument('--image', type=pathlib.Path, help='the member of the IPSW (default: $XNU_OS_MEMBER)')
+    parser.add_argument('--output', type=pathlib.Path)
     parser.add_argument('--manifest-tool', type=pathlib.Path, default=pathlib.Path('kits/VerifiedRoot/tools/manifest.py'))
     parser.add_argument('--keys', type=pathlib.Path, default=pathlib.Path('build/verified-root-keys'))
     args = parser.parse_args()
 
+    image_bytes, blocks, expected = COMPONENTS[args.component]
+    if args.output is None:
+        args.output = pathlib.Path('build/verified-root-' + args.component)
     if args.image is None:
-        from_env = os.environ.get('XNU_OS_MEMBER')
+        key = 'XNU_SYSTEMOS_MEMBER' if args.component == 'systemos' else 'XNU_OS_MEMBER'
+        from_env = os.environ.get(key)
         if not from_env:
-            raise SystemExit('pass --image or set XNU_OS_MEMBER to the OS member of the IPSW')
+            raise SystemExit(f'pass --image or set {key} to the {args.component} member of the IPSW')
         args.image = pathlib.Path(from_env)
     if not args.image.is_file():
         raise SystemExit(f'{args.image} is not a file')
@@ -85,22 +92,25 @@ def main():
         require(raw.exists(), f'{raw} is not present')
         sys.path.insert(0, str(args.manifest_tool.parent))
         import manifest as manifest_tool
-        print(f'policy: reading {raw} ({OS_BYTES} bytes)')
+        info = plistlib.loads(subprocess.run(['diskutil', 'info', '-plist', device],
+                                            capture_output=True, check=True).stdout)
+        volume_uuid = info.get('VolumeUUID')
+        require(volume_uuid, 'the attached member has no volume UUID')
+        print(f'policy: {args.component} {raw} ({image_bytes} bytes) uuid {volume_uuid}')
         with raw.open('rb', buffering=1 << 20) as stream:
-            record = manifest_tool.make(stream, OS_BYTES, private_key, public_key,
-                                        uuid.UUID(OS_UUID), 1, args.output)
-        require(record['image_sha256'] == 'e5634d04a8ac35f024845f583394e0a35deb26a04cb0c00286a8674e25a9a4f2',
-                'the OS member is not the pinned original')
-        require(record['block_count'] == OS_BLOCKS, f"unexpected block count {record['block_count']}")
+            record = manifest_tool.make(stream, image_bytes, private_key, public_key,
+                                        uuid.UUID(volume_uuid), 1, args.output)
+        require(record['image_sha256'] == expected, f'the {args.component} member is not the pinned original')
+        require(record['block_count'] == blocks, f"unexpected block count {record['block_count']}")
 
         # Re-read and check every block against the table that was just signed.
         table = (args.output / 'hashes.bin').read_bytes()
         samples, lengths = bytearray(), []
         digest = hashlib.sha256()
-        indices = [0, 1, OS_BLOCKS // 2, OS_BLOCKS - 1]
+        indices = [0, 1, blocks // 2, blocks - 1]
         with raw.open('rb', buffering=1 << 20) as stream:
-            for index in range(OS_BLOCKS):
-                want = min(BLOCK, OS_BYTES - index * BLOCK)
+            for index in range(blocks):
+                want = min(BLOCK, image_bytes - index * BLOCK)
                 block = stream.read(want)
                 require(len(block) == want, f'short read at block {index}')
                 require(hashlib.sha256(block).digest() == table[index * 32:(index + 1) * 32],
@@ -120,10 +130,10 @@ def main():
     require(rsa_verify(key, hashlib.sha256(header).digest(), signature), 'the manifest signature does not verify')
     (args.output / 'original-samples.bin').write_bytes(bytes(samples))
     verification = dict(
-        image_bytes=OS_BYTES,
-        blocks_verified=OS_BLOCKS,
+        image_bytes=image_bytes,
+        blocks_verified=blocks,
         image_sha256=record['image_sha256'],
-        volume_uuid=OS_UUID,
+        volume_uuid=volume_uuid,
         generation=1,
         trusted_key_sha256=record['trusted_key_sha256'],
         actual_sample_indices=indices,
@@ -137,7 +147,7 @@ def main():
         boot_root_authenticated=False,
     )
     (args.output / 'verification.json').write_text(json.dumps(verification, indent=2) + '\n')
-    print(f"policy: {OS_BLOCKS} blocks verified, image sha256 {record['image_sha256']}")
+    print(f"policy: {args.component} {blocks} blocks verified, sha256 {record['image_sha256']}")
 
 
 if __name__ == '__main__':

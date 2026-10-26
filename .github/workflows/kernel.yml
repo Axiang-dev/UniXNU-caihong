@@ -75,6 +75,10 @@ jobs:
           echo "os member: $os"
           test -f "$os"
           echo "XNU_OS_MEMBER=$os" >> "$GITHUB_ENV"
+          systemos=$(./unixnu ipsw fetch Cryptex1,SystemOS -D ../device | tail -1)
+          echo "systemos member: $systemos"
+          test -f "$systemos"
+          echo "XNU_SYSTEMOS_MEMBER=$systemos" >> "$GITHUB_ENV"
 
       - name: Build the kernel
         working-directory: unixnu

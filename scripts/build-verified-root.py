@@ -24,8 +24,8 @@ GENERATED = ROOT / 'build' / 'verified-root-os'
 COMMITTED = ROOT / 'policy' / 'os'
 SOURCE = GENERATED if (GENERATED / 'manifest.bin').is_file() else COMMITTED
 STAGE = GENERATED
-# --component os without --include-systemos publishes here.
-OUT = ROOT / 'build' / 'verified-root-os-xnu' / 'libVerifiedRootProbe.a'
+# --component os --include-systemos publishes the two-volume bundle here.
+OUT = ROOT / 'build' / 'verified-root-os-xnu-bundle' / 'libVerifiedRootProbe.a'
 
 
 def main():
@@ -46,7 +46,7 @@ def main():
     for name in ('libsa',):
         (ROOT / 'build' / 'xnu' / 'ios-obj' / 'EXPORT_HDRS' / name).mkdir(parents=True, exist_ok=True)
     result = subprocess.run([sys.executable, str(ROOT / 'scripts/build-verified-root-probe.py'),
-                             '--component', 'os'],
+                             '--component', 'os', '--include-systemos'],
                             capture_output=True, text=True, timeout=3600)
     if result.returncode:
         print((result.stdout or '')[-3000:])

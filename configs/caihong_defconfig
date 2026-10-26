@@ -18,7 +18,7 @@ CONFIG_XNU_NATIVE_UFS=y
 CONFIG_XNU_NATIVE_AES=y
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK=y
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK_ARCHIVE="{tree}/build/native-virtio-block-verified/libNativeVirtioBlock.a"
-CONFIG_XNU_VERIFIED_ROOT_ARCHIVE="{tree}/build/verified-root-os-xnu/libVerifiedRootProbe.a"
+CONFIG_XNU_VERIFIED_ROOT_ARCHIVE="{tree}/build/verified-root-os-xnu-bundle/libVerifiedRootProbe.a"
 CONFIG_XNU_NATIVE_RAM_BLOCK=n
 # The offline-component-load-probes patch calls native_legacy_display_probe()
 # from bsd_init without a config guard. CI rewrites that call out of the patch
