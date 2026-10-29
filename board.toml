@@ -138,12 +138,12 @@ kernel_args = ["-v", "serial=3"]
 
 [payload.adt]
 tool = "scripts/make-caihong-adt.py"
-# The UFS block class publishes this UUID for the OS window, so the kernel can pick
-# the real root volume instead of the stub ramdisk.
-# The APFS partition inside the OS window: the driver publishes the window, the
-# partition scheme publishes this volume, and XNU matches it.
-# The APFS volume UUID, as the porting guide and the reference ports use it;
-# the owner check compares this identity against the signed policy.
+# The identity the kernel matches for the root volume. The UFS driver publishes the
+# OS window through its partition scheme, so this must be the GUID of the partition
+# that carries the root image: build-userdata-gpt.py writes it there, and the owner
+# policy binds the same value when that path is enabled.
+# Rebuilding the root image changes the HFS+ volume UUID, so update this value and
+# pass the same one as --os-guid, otherwise the kernel will not match the volume.
 root_match_volume_uuid = "366B077F-A4FA-35DF-9A9C-B6A5CAFC8F7E"
 chip_id = "0x207"
 owned_memory_size = "0x80000000"

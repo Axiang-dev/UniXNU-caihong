@@ -1,7 +1,8 @@
 # Kernel configuration for OnePlus Pad Pro (caihong, SM8650).
 #
-# Stage 1 profile: kernel entry only. No storage, display or GPU driver is
-# enabled until the entry path is proven on the tablet.
+# Storage (UFS) and the mobile display backend are enabled. The owner-root and
+# verified-root paths stay off, so the kernel continues past an unsealed root
+# through the bring-up patch; see the README section "根卷与认证".
 CONFIG_XNU_SOURCE_CORECRYPTO14=y
 CONFIG_XNU_SOURCE_PTHREAD=y
 CONFIG_XNU_ARM_DT_PLATFORM=y

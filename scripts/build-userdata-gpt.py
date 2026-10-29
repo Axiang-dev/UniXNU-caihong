@@ -101,31 +101,27 @@ def main():
     prefix, trailer, window_bytes = gpt_for(os_bytes, uuid.UUID(args.os_guid), 'iOSRoot')
     systemos_bytes = args.systemos.stat().st_size
 
-    header_at = base
-    os_at = base + MIB
-    systemos_at = os_at + ((window_bytes + MIB - 1) // MIB) * MIB
-    total = systemos_at + ((systemos_bytes + MIB - 1) // MIB) * MIB
-
+    # Every offset below comes from the write position, so the header can never
+    # disagree with where the data actually landed. Computing them up front is what
+    # produced an image whose SystemOS entry pointed a megabyte past its window.
     with args.output.open('wb') as output:
         output.write(payload)
         output.write(bytes(base - len(payload)))
+        header_at = output.tell()
         output.write(bytes(MIB))                       # header placeholder
+        os_at = output.tell()
         output.write(prefix)
         with args.os_image.open('rb') as source:
-            hasher = hashlib.sha256()
             copy_exact(source, output, os_bytes)
-            remaining = os_bytes
         output.write(trailer)
-        pad = window_bytes - len(prefix) - os_bytes - len(trailer)
-        if pad:
-            output.write(bytes(pad))
+        output.write(bytes(-output.tell() % MIB))
+        systemos_at = output.tell()
         with args.systemos.open('rb') as source:
             systemos_digest = sha256_of(source, systemos_bytes)
             source.seek(0)
             copy_exact(source, output, systemos_bytes)
-        remaining = total - output.tell()
-        if remaining:
-            output.write(bytes(remaining))
+        output.write(bytes(-output.tell() % MIB))
+        total = output.tell()
 
     # Digest of the whole OS window as written.
     with args.output.open('rb') as written:
@@ -143,6 +139,18 @@ def main():
     with args.output.open('r+b') as output:
         output.seek(header_at)
         output.write(header)
+
+    # Read it back the way the driver will: an offset that does not point at the
+    # bytes it describes only shows up on the tablet as "Failed to mount root device".
+    with args.output.open('rb') as written:
+        for name, at, size, digest in (
+            ('OS', os_at, window_bytes, os_digest),
+            ('SystemOS', systemos_at, systemos_bytes, systemos_digest),
+        ):
+            written.seek(at)
+            if sha256_of(written, size) != digest:
+                raise SystemExit(f'{name} window does not read back at {at}')
+            print(f'  {name:<9} {at} .. {at + size}  verified')
 
     print(f'userdata: {total} bytes')
     print(f'  OS window      {os_at} .. {os_at + window_bytes} (GPT, guid {args.os_guid})')

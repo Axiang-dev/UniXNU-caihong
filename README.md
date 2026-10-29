@@ -111,7 +111,7 @@ adb shell su -c "cat /sys/block/sda/queue/logical_block_size"
 
 | 根卷 | 到哪一步 | 卡点 |
 |---|---|---|
-| 桩根卷 `rd=md0`（恢复镜像 APFS） | launchd 加载、日志上屏 | 没有真实系统文件，只能验证内核链路 |
+| 桩根卷 `rd=md0`（恢复镜像 APFS） | launchd 加载、日志上屏 | 需把 `rd=md0` 加进 `[payload] kernel_args`；没有真实系统文件，只能验证内核链路 |
 | 真实 OS 根卷（IPSW 的 `OS` 成员） | 挂载成功 → 认证失败 → 补丁放行 → `Calling launchd` | `vm_shared_region_start_address() failed` |
 
 ```
@@ -187,7 +187,7 @@ rootvp not authenticated after mounting        （autherr=80，即 EAUTH）
 |---|---|---|
 | `UniXNU-sheng` | owner-root（自签策略包） | 策略包手工在 macOS 准备，CI 里没有这一步 |
 | `UniXNU-Pagani_SM8750` | owner-root，**已到系统图形界面** | `STAGE6.md` 记录了全过程 |
-| `UniXNU-uke` | 桩根卷 | 有全套 owner-root 配置，但归档列表里没有对应步骤 |
+| `UniXNU-uke` | 未启用 owner-root | 配置齐全，但归档列表里没有对应步骤，启动用的不是真实系统根卷 |
 | `UniXNU-OnePlus-Ace5` | HFSX 根卷（没有封印概念） | 到 Hello / 设置界面，触控可用 |
 | 本仓库 | 先绕过认证，再转 HFS+ | 见下 |
 
@@ -201,7 +201,10 @@ NATIVE_ROOT binding: apple=80 owner=1 readonly=1 mounted=1000006 selected=100000
 
 ### bring-up 补丁（不可发布）
 
-`patches/xnu/offline-owner-root-binding-audit.patch` 里的 panic 被换成打印：
+本节和下面提到的两个补丁都在**上游 UniXNU 仓库**的 patches/xnu 目录里（本仓库不含它们），
+构建时由本仓库的钩子脚本在拉下来的上游树里改写。
+
+`offline-owner-root-binding-audit.patch` 里的 panic 被换成打印：
 
 ```c
 -  panic("rootvp not authenticated after mounting");
@@ -231,7 +234,7 @@ shared_region: [1:launchd] check_rp(...) vm_shared_region_start_address() failed
 
 iOS 16+ 的 dyld 共享缓存在 SystemOS cryptex 里
 （`/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld/`），不在根卷上。
-`patches/xnu/offline-owner-systemos-mount.patch` 想挂它，但开头就是：
+`offline-owner-systemos-mount.patch`（同样在上游）想挂它，但开头就是：
 
 ```c
 root_authorized = ... && native_verified_block_root_authorized(root_device);
@@ -264,10 +267,18 @@ HFS+ 没有"密封系统卷"这个概念。把 OS + SystemOS 的文件合并进�
    驱动 `ufsBuildRootPlan` 里 `if (system == count || os == count) return false;`，
    缺一个就不发布任何设备，内核只会报 `Failed to mount root device`。
 2. **窗口要包在 GPT 里。** 驱动通过分区方案发布设备，裸文件系统没有分区 GUID 可匹配。
-   GPT 里的分区 GUID 就是 `board.toml` 的 `root_match_volume_uuid`。
-   注意这个值是 **APFS/HFS 卷身份或分区 GUID**，不是随便一个 GPT 分区表里的旧值。
+   GPT 里的分区 GUID 就填 `board.toml` 的 `root_match_volume_uuid`——我们把分区 GUID
+   直接设成根镜像的卷 UUID，这样按分区匹配、按卷匹配都能对上。
 3. **GPT 头 CRC 只覆盖前 92 字节**（`header_size`），不是整个扇区。算错整张分区表失效，
    内核侧表现同样是"找不到根设备"。
+4. **窗口偏移是绝对值，必须等于实际写入位置。** 头部里的 `at` 不是相对量，算错一点，
+   内核读到的就是空白区域，表现还是"找不到根设备"。`build-userdata-gpt.py` 现在按
+   写入位置取偏移，写完回读校验；`place-root-at-offset.py` 遇到 SHNGROOT 镜像会直接拒绝。
+
+> **重建镜像会换掉 UUID。** `newfs_hfs` 每次生成的卷 UUID 都不同，`iosroot` 工作流会把
+> 新值写进 `volume-uuid.txt`。拿到新镜像后必须**同时**改两处：`board.toml` 的
+> `root_match_volume_uuid`，以及 `build-userdata-gpt.py --os-guid`。
+> 只改一处的结果是"镜像内容没错、就是找不到根设备"。
 
 #### 当前镜像状态
 
@@ -279,7 +290,8 @@ OS 窗口：GPT 磁盘
 SystemOS 窗口：3.3 GB，sha256 b4908cde…（与 IPSW 一致）
 ```
 
-离线校验已通过：GPT 签名、头 CRC、条目 CRC、分区内 HFSX 卷头（`HX` v5）。
+离线校验已通过：GPT 签名、头 CRC、条目 CRC、分区内 HFSX 卷头（`HX` v5），
+以及两个窗口的偏移回读（数据确实在头部记录的位置上，SystemOS 的 sha256 与 IPSW 一致）。
 **待验证**：设备上能否匹配到这个分区并挂载。
 
 ## 关键技术点
@@ -364,9 +376,12 @@ mov x0, x21 ; mov x1, x21 ; bl panic
 | `scripts/xnu-console.c` + `scripts/patch-xnu-console.py` | 内核日志上屏 + 心跳 |
 | `scripts/pack-hfs-userdata.py` | 把 HFS+ 根镜像包成 SHNGROOT（驱动读的格式） |
 | `scripts/build-userdata-gpt.py` | payload + OS/SystemOS 两窗口合成 userdata，OS 窗口带 GPT 外壳 |
-| `scripts/place-root-at-offset.py` | payload 放 0、根镜像放 1 GiB，两段共用一个分区 |
+| `scripts/place-root-at-offset.py` | 裸文件系统镜像专用：payload 放 0、根镜像放 1 GiB |
 | `.github/workflows/kernel.yml` | CI：拉 IPSW 组件、编内核、打 payload、上传 artifact |
 | `.github/workflows/iosroot.yml` | CI：从固定 IPSW 组装 HFS+ 根镜像（OS + SystemOS 合并） |
+| `.github/workflows/userdata.yml` | CI：用 hdiutil 组装 APFS 根卷（仅 macOS） |
+| `.github/workflows/verify.yml` | 每次 push 跑 `scripts/verify.py`，检查引用与配置是否自洽 |
+| `LICENSE` | BSD-2-Clause-Patent，与上游 UniXNU 一致 |
 | `uefi-overlay/` | Mu-Silicium 侧的改动（驱动、fdf、DTB、UniXNU Main.c），按路径覆盖即可 |
 
 ## 构建
@@ -388,15 +403,16 @@ gunzip -c root.img.gz > root.img
 # 1) 包成 SHNGROOT（单窗口，仅用于检查内容）
 python scripts/pack-hfs-userdata.py --root root.img --output userdata-hfs.img
 
-# 2) 和 payload、SystemOS 一起合成带 GPT 的 userdata
+# 2) 和 payload、SystemOS 一起合成带 GPT 的 userdata（推荐，一次成型）
 python scripts/build-userdata-gpt.py --payload payload.img \
     --os-image root.img --os-guid <board.toml 的 root_match_volume_uuid> \
     --systemos systemos-raw.img --output userdata.img
-
-# 或者：已有根镜像时，把 payload 插到它前面
-python scripts/place-root-at-offset.py --image userdata.img \
-    --payload payload.img --offset-mib 1024
 ```
+
+`build-userdata-gpt.py` 写完会把两个窗口回读校验一遍，偏移对不上直接失败。
+
+`place-root-at-offset.py` 是另一条路：把一个**裸文件系统**镜像整体右移、payload 放开头。
+它**不能**用在 SHNGROOT 镜像上（窗口存的是绝对偏移，移完就全错位），脚本会直接拒绝。
 
 固件（Windows 可编）：
 
@@ -474,6 +490,13 @@ if (EFI_ERROR (Status)) {
 3. **显示驱动**：把固件已在用的 GOP 帧缓冲包装成 IOKit `IOFramebuffer`，
    WindowServer 才有设备可画。工作量以周计。
 4. **输入驱动**：USB 主机控制器或 PMIC 按键，交互的前提。
+
+## 许可
+
+本仓库的脚本、配置与文档以 **BSD-2-Clause-Patent** 提供，与上游 UniXNU 一致，全文见 `LICENSE`。
+
+内核补丁作用于 Apple 的 XNU 源码，那部分仍遵循 XNU 自身的许可（APSL 2.0）；
+Mu-Silicium、DarwinBoot 等组件各自保留原许可。再分发时请一并保留这些声明。
 
 ## 致谢
 

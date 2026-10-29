@@ -58,10 +58,10 @@ cp /path/to/uefi-overlay/UniXNU/package/UniXNUPkg/Library/UniXNULib/Main.c \
 ## 编译
 
 ```bash
-cd D:/uefi
+cd <Mu-Silicium 的工作目录>
 export PATH="/c/Program Files/LLVM/bin:$PATH" PYTHONUTF8=1
 python build_uefi.py -d caihong -m 0 -r RELEASE
-# 产物：D:/uefi/Mu-caihong-0.img
+# 产物：Mu-caihong-0.img
 ```
 
 两个坑：

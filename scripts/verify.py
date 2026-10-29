@@ -170,6 +170,45 @@ except SystemExit as exc:
     fail(f"trust cache: container does not validate: {exc}")
 ok("trust cache conversion self-test passes")
 
+# --- userdata layout self-test ---------------------------------------------
+# The window offsets in the SHNGROOT header are absolute. An image whose header
+# points a megabyte past its data only fails on the tablet, as "Failed to mount
+# root device", so build a small one here and read the entries back.
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    tmp = pathlib.Path(tmpdir)
+    (tmp / "payload.img").write_bytes(bytes(512 << 10))
+    (tmp / "root.img").write_bytes(b"HX" + bytes(1) * ((8 << 20) - 2))
+    (tmp / "sysos.img").write_bytes(b"\x1a\x3a\x25\x60" + bytes(2) * ((3 << 20) - 4))
+    built = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "build-userdata-gpt.py"),
+         "--payload", str(tmp / "payload.img"),
+         "--os-image", str(tmp / "root.img"),
+         "--os-guid", "366B077F-A4FA-35DF-9A9C-B6A5CAFC8F7E",
+         "--systemos", str(tmp / "sysos.img"),
+         "--offset-mib", "1",
+         "--output", str(tmp / "out.img")],
+        capture_output=True, text=True)
+    if built.returncode != 0:
+        fail(f"userdata layout: the builder failed: {built.stderr.strip().splitlines()[-1:]}")
+    else:
+        image = (tmp / "out.img").read_bytes()
+        header = image[1 << 20:(1 << 20) + 4096]
+        if header[:8] != b"SHNGROOT":
+            fail("userdata layout: no manifest at the header offset")
+        else:
+            name, os_at, *_ = struct.unpack_from("<32sQQII32s40s", header, 24)
+            name, sysos_at, *_ = struct.unpack_from("<32sQQII32s40s", header, 152)
+            if image[os_at + 512:os_at + 520] != b"EFI PART":
+                fail(f"userdata layout: OS window at {os_at} has no GPT header")
+            if image[sysos_at:sysos_at + 4] != b"\x1a\x3a\x25\x60":
+                fail(f"userdata layout: SystemOS window at {sysos_at} does not hold its data")
+            if not (os_at and sysos_at):
+                fail("userdata layout: a window offset is zero")
+            ok("userdata layout self-test passes")
+
 # --- report -----------------------------------------------------------------
 for line in notes:
     print(f"  ok   {line}")
