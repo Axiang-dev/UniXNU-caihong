@@ -2,19 +2,19 @@
 
 OnePlus Pad Pro（`caihong` / OPD2404 / SM8650）上的 UniXNU 移植。
 
-> ## 📦 本项目已归档（2026-10-24）
+> ## 🚧 开发中（2026-10-29 更新）
 >
-> **开发已停止，仓库转为只读存档。** 内容保留下来供后续参考，不再维护、不再回复 issue。
+> 仓库曾在 2026-10-24 归档，之后又继续推进并拿到关键突破，现已恢复维护。
 >
-> **做到哪一步**：内核完整启动到用户态，`/sbin/launchd` 正常运行，
-> 内核日志与心跳直接输出到屏幕。显示驱动（IOFramebuffer）与输入驱动未实现，
-> 所以**没有图形界面**——这也是停止的主要原因：从"能启动"到"能用"还差整套驱动，
-> 工作量以月计。
+> **这两天做完的**：
 >
-> **想接着做的人**：从「下一步」一节继续，`patches/` + `uefi-overlay/` +
-> `scripts/` 已经足够复现当前状态（已用干净树实测过）。
+> - 真实 OS 根卷挂载成功后，内核卡在 `rootvp not authenticated after mounting`（EAUTH 80）
+> - 加了一个**仅供 bring-up** 的补丁让内核继续，屏幕实测进入 `bsd_init: Calling launchd`
+> - 现在卡在 `vm_shared_region_start_address() failed`——dyld 共享缓存不在根卷上
+> - 改走 HFS+ 根镜像（把 SystemOS 合并进根卷），镜像结构已离线校验通过，待上机验证
 >
-> 归档仓库如需恢复维护，在 GitHub 仓库页面 **Settings → Danger Zone → Unarchive** 即可。
+> 细节见下文「[根卷与认证](#根卷与认证)」。
+> **bring-up 补丁绕过了根卷校验，不可用于发布。**
 
 > **注意：本文档与仓库内的脚本、补丁主要由 AI 生成和整理，可能与实际设备行为存在偏差。**
 >
@@ -107,15 +107,20 @@ adb shell su -c "cat /sys/block/sda/queue/logical_block_size"
 
 ## 当前状态
 
-**内核已完整启动到用户态：`/sbin/launchd` 正在运行，内核日志直接输出到屏幕。**
+**内核能完整启动到用户态，`/sbin/launchd` 已被调起。** 目前有两条根卷路径，进度不同：
+
+| 根卷 | 到哪一步 | 卡点 |
+|---|---|---|
+| 桩根卷 `rd=md0`（恢复镜像 APFS） | launchd 加载、日志上屏 | 没有真实系统文件，只能验证内核链路 |
+| 真实 OS 根卷（IPSW 的 `OS` 成员） | 挂载成功 → 认证失败 → 补丁放行 → `Calling launchd` | `vm_shared_region_start_address() failed` |
 
 ```
 ABL → BootShim → UEFI(Mu-Silicium) → UniXNU → payload(UFS/FAT32)
     → DarwinBoot → XNU → MMU → kext → AMFI → BSD init
-    → 挂载 md0(恢复镜像 APFS) → load_init_program → /sbin/launchd
+    → 挂载根卷 → rootauth → load_init_program → /sbin/launchd
 ```
 
-启动日志的关键几行（屏幕实拍转录）：
+桩根卷（`rd=md0`）的启动日志（屏幕实拍转录）：
 
 ```
 VM bootstrap done: 39 maps, 112 entries and L6 holes left
@@ -129,6 +134,19 @@ load_init_program: attempting to load /sbin/launchd
 shared_region: 0x1a241d7c642c7d83 (1(launchd)) check_map(0x16ee/2bbe0)
 ```
 
+真实 OS 根卷的启动日志（2026-10-27 实拍转录）：
+
+```
+root device selected: disk3s1
+vfs_mountroot mounted; authentication pending
+rootvp not authenticated after mounting        ← autherr=80（EAUTH）
+rootauth: no sealed root, continuing (autherr=80)     ← bring-up 补丁，见下文
+bsd_init: Calling launchd
+load_init_program: attempting to load /usr/appleinternal/sbin/launchd.development
+load_init_program: attempting to load /sbin/launchd
+shared_region: [1:launchd] check_rp(...) vm_shared_region_start_address() failed
+```
+
 ### 已验证 / 未完成
 
 | 项 | 状态 |
@@ -140,11 +158,129 @@ shared_region: 0x1a241d7c642c7d83 (1(launchd)) check_map(0x16ee/2bbe0)
 | AMFI PMGR 检查 | ✅ 已 patch 绕过 |
 | BSD 初始化 | ✅ |
 | 根卷挂载（恢复镜像 APFS，`rd=md0`） | ✅ |
-| 用户态启动（launchd） | ✅ |
+| 根卷挂载（真实 OS 成员，UFS 窗口） | ✅ 挂载成功 |
+| 根卷认证 | ❌ EAUTH 80，靠 bring-up 补丁放行 |
+| 用户态启动（launchd） | ✅ 已调起（`bsd_init: Calling launchd`） |
+| dyld 共享缓存 | ❌ `vm_shared_region_start_address() failed` |
+| HFS+ 根镜像（OS + SystemOS 合并） | ⏳ 镜像已就绪、结构已校验，待上机 |
 | 内核日志上屏 + 心跳 | ✅ |
 | 显示驱动（IOFramebuffer） | ❌ 未做，UI 需要它 |
 | 输入驱动（USB / PMIC 按键） | ❌ 未做，交互需要它 |
-| 完整 OS 根卷（`OS` + `Cryptex1,SystemOS`） | ⏳ `board.toml` 已配好，约 8 GB |
+
+## 根卷与认证
+
+### 为什么 IPSW 里的 OS 卷永远过不了认证
+
+IPSW 的 `OS` 成员是**封印之前**的源镜像（卷名 `newfs_apfs`，刚格式化出来的），
+没有 `com.apple.os.update` 快照，也没有密封签名。`bsd_init` 的检查因此必然失败：
+
+```
+rootvp not authenticated after mounting        （autherr=80，即 EAUTH）
+```
+
+这不是读法或配置的问题——镜像本身没有封印，怎么读都过不了。
+要过只有两条路：**用机主自己的认证（owner-root）**，或者**换一个没有封印概念的文件系统**。
+
+### 参考实现各自走到哪
+
+| 项目 | 做法 | 公开产物 |
+|---|---|---|
+| `UniXNU-sheng` | owner-root（自签策略包） | 策略包手工在 macOS 准备，CI 里没有这一步 |
+| `UniXNU-Pagani_SM8750` | owner-root，**已到系统图形界面** | `STAGE6.md` 记录了全过程 |
+| `UniXNU-uke` | 桩根卷 | 有全套 owner-root 配置，但归档列表里没有对应步骤 |
+| `UniXNU-OnePlus-Ace5` | HFSX 根卷（没有封印概念） | 到 Hello / 设置界面，触控可用 |
+| 本仓库 | 先绕过认证，再转 HFS+ | 见下 |
+
+Pagani 的审计行说明了放行条件：
+
+```
+NATIVE_ROOT binding: apple=80 owner=1 readonly=1 mounted=1000006 selected=1000006
+```
+
+`apple=80`（EAUTH）失败，但 `owner=1` 且只读 → 放行。**关键在 owner 查询能返回 1。**
+
+### bring-up 补丁（不可发布）
+
+`patches/xnu/offline-owner-root-binding-audit.patch` 里的 panic 被换成打印：
+
+```c
+-  panic("rootvp not authenticated after mounting");
++  printf("rootauth: no sealed root, continuing (autherr=%d)\n", autherr);
+```
+
+由 `.github/scripts/patch-xnu-source.py` 的 `patch_rootauth_message()` 在构建时改写，
+CI 里有断言 `strings kernel | grep "rootauth: no sealed root"`，没进内核就直接失败。
+
+两个坑：
+
+- **不能用 `bsd_init_kprintf` 打这行日志**。它在非调试配置下是空宏
+  （`#define bsd_init_kprintf(x, ...)`），整句会被编译掉，看起来像补丁没生效。
+- **不能另加一个补丁去改这一行**。构建脚本对每个补丁做 `git apply --reverse --check`，
+  后面的补丁改掉前面的上下文，会让前面的补丁既不正向也不反向可应用。
+  要改就改**拥有这行的那个补丁本身**，并把 context 行拆成 `-`/`+` 对（hunk 计数不变）。
+
+它只是让内核别停：`native_verified_block_root_authorized()` 仍然返回 0。
+
+### 卡点：dyld 共享缓存不在根卷上
+
+launchd 被调起后立刻失败：
+
+```
+shared_region: [1:launchd] check_rp(...) vm_shared_region_start_address() failed
+```
+
+iOS 16+ 的 dyld 共享缓存在 SystemOS cryptex 里
+（`/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld/`），不在根卷上。
+`patches/xnu/offline-owner-systemos-mount.patch` 想挂它，但开头就是：
+
+```c
+root_authorized = ... && native_verified_block_root_authorized(root_device);
+if (!root_authorized) goto done;
+```
+
+所以整条链是互锁的：
+
+```
+根卷认证 → verified block → SystemOS 挂载 → dyld 共享缓存 → launchd
+```
+
+补丁能绕开"认证失败"，绕不开它后面这些依赖。**主线还是要真正把根卷做成"可认证"或"无需认证"。**
+
+### 正在走的路：HFS+ 根镜像
+
+HFS+ 没有"密封系统卷"这个概念。把 OS + SystemOS 的文件合并进一个 HFS+ 卷，
+共享缓存就直接落在 `/System/Library/Caches/com.apple.dyld/`，不必挂 cryptex。
+
+| 文件 | 作用 |
+|---|---|
+| `.github/workflows/iosroot.yml` | 下载固定 IPSW → 校验两个 DMG → `newfs_hfs -s -J` → rsync → 合并 SystemOS → 输出 `root.img.gz` + `volume-uuid.txt` |
+| `scripts/pack-hfs-userdata.py` | 把根镜像包成驱动读的 SHNGROOT |
+| `scripts/build-userdata-gpt.py` | payload + 两个窗口合成一个 userdata（OS 窗口带 GPT 外壳） |
+| `scripts/place-root-at-offset.py` | payload 放 0、根镜像放 1 GiB（`native-ufs-root-offset-mib`） |
+
+#### 三个必须知道的约束（都是实测踩出来的）
+
+1. **SHNGROOT 必须同时有 `OS` 和 `SystemOS` 两个窗口。**
+   驱动 `ufsBuildRootPlan` 里 `if (system == count || os == count) return false;`，
+   缺一个就不发布任何设备，内核只会报 `Failed to mount root device`。
+2. **窗口要包在 GPT 里。** 驱动通过分区方案发布设备，裸文件系统没有分区 GUID 可匹配。
+   GPT 里的分区 GUID 就是 `board.toml` 的 `root_match_volume_uuid`。
+   注意这个值是 **APFS/HFS 卷身份或分区 GUID**，不是随便一个 GPT 分区表里的旧值。
+3. **GPT 头 CRC 只覆盖前 92 字节**（`header_size`），不是整个扇区。算错整张分区表失效，
+   内核侧表现同样是"找不到根设备"。
+
+#### 当前镜像状态
+
+```
+OS 窗口：GPT 磁盘
+  分区 GUID  366B077F-A4FA-35DF-9A9C-B6A5CAFC8F7E
+  分区类型  Apple HFS (48465300-…)
+  内容      HFSX 16 GiB（OS + SystemOS 已合并）
+SystemOS 窗口：3.3 GB，sha256 b4908cde…（与 IPSW 一致）
+```
+
+离线校验已通过：GPT 签名、头 CRC、条目 CRC、分区内 HFSX 卷头（`HX` v5）。
+**待验证**：设备上能否匹配到这个分区并挂载。
 
 ## 关键技术点
 
@@ -176,6 +312,9 @@ cdhash 严格升序、`hash_type` 在 1..4、`start >= 4 + count*4` 且 4 字节
 
 只有 `initrd` 指向 APFS 镜像还不够，内核仍报 `Failed to mount root device @IOKitBSDInit.cpp:984`。
 加启动参数 `rd=md0` 强制指定内存盘为根设备后挂载成功。
+
+走真实 OS 根卷时**不加** `rd=md0`，根设备由 UFS 窗口发布（`disk3s1`）；
+同一个内核两条路都能用，区别只在启动参数和 userdata 布局。
 
 ### 4. AMFI 的 PMGR 检查
 
@@ -223,7 +362,11 @@ mov x0, x21 ; mov x1, x21 ; bl panic
 | `scripts/unwrap-img4.py` | 剥掉 IPSW 组件的 IMG4 外壳 |
 | `scripts/patch-amfi-pmgr-name.py` | AMFI PMGR 检查 patch |
 | `scripts/xnu-console.c` + `scripts/patch-xnu-console.py` | 内核日志上屏 + 心跳 |
+| `scripts/pack-hfs-userdata.py` | 把 HFS+ 根镜像包成 SHNGROOT（驱动读的格式） |
+| `scripts/build-userdata-gpt.py` | payload + OS/SystemOS 两窗口合成 userdata，OS 窗口带 GPT 外壳 |
+| `scripts/place-root-at-offset.py` | payload 放 0、根镜像放 1 GiB，两段共用一个分区 |
 | `.github/workflows/kernel.yml` | CI：拉 IPSW 组件、编内核、打 payload、上传 artifact |
+| `.github/workflows/iosroot.yml` | CI：从固定 IPSW 组装 HFS+ 根镜像（OS + SystemOS 合并） |
 | `uefi-overlay/` | Mu-Silicium 侧的改动（驱动、fdf、DTB、UniXNU Main.c），按路径覆盖即可 |
 
 ## 构建
@@ -235,6 +378,24 @@ mov x0, x21 ; mov x1, x21 ; bl panic
 
 # 根卷（约 8 GB，需要 macOS）
 ./unixnu build userdata -D ../device --ipsw <iPad_Pro_17.7.11_21H461_Restore.ipsw>
+```
+
+HFS+ 根镜像这条线（`iosroot` 工作流产出 `root.img.gz` 后）：
+
+```sh
+gunzip -c root.img.gz > root.img
+
+# 1) 包成 SHNGROOT（单窗口，仅用于检查内容）
+python scripts/pack-hfs-userdata.py --root root.img --output userdata-hfs.img
+
+# 2) 和 payload、SystemOS 一起合成带 GPT 的 userdata
+python scripts/build-userdata-gpt.py --payload payload.img \
+    --os-image root.img --os-guid <board.toml 的 root_match_volume_uuid> \
+    --systemos systemos-raw.img --output userdata.img
+
+# 或者：已有根镜像时，把 payload 插到它前面
+python scripts/place-root-at-offset.py --image userdata.img \
+    --payload payload.img --offset-mib 1024
 ```
 
 固件（Windows 可编）：
@@ -252,7 +413,17 @@ fastboot flash userdata payload.img      # payload FAT 卷，大小见 board.tom
 fastboot boot Mu-caihong-0.img           # 固件
 ```
 
-payload 必须独占 userdata；若要上完整 OS 根卷，需要先把 payload 挪到别处。
+payload 和根镜像**可以共用一个 userdata**，靠偏移分开：
+
+```
+userdata
+  0            payload FAT（固件从这里挂 FAT16）
+  1 GiB        SHNGROOT 头 + OS / SystemOS 两个窗口（native-ufs-root-offset-mib=1024）
+```
+
+`board.toml` 的 `[userdata] first_lba / last_lba / lba_bytes` 必须和本机 GPT 一致，
+否则会写错分区。20 GB 的镜像 USB 大约 9 分钟；中途中断后设备可能卡在异常状态，
+拔插数据线、重进 fastboot 即可恢复。
 
 ## 固件集成
 
@@ -291,12 +462,18 @@ if (EFI_ERROR (Status)) {
 
 ## 下一步
 
-1. **显示驱动**：把固件已在用的 GOP 帧缓冲包装成 IOKit `IOFramebuffer`，
+按优先级：
+
+1. **验证 HFS+ 根卷能否被匹配并挂载**。镜像已经做好、结构也离线校验过，
+   缺的就是上机那一步。若挂上且不再报 `vm_shared_region_start_address()`，
+   launchd 就能拿到共享缓存继续往下走。
+2. **若 HFS+ 仍不行，回到 owner-root**。Pagani 已经用这条路到图形界面，
+   要素是：`NativeUfs` / `NativeVirtioBlock` 都用**普通模式**编进内核（只提供查询函数，
+   不建 VirtIO 设备节点）、`CONFIG_XNU_NATIVE_PAN=y`、策略包按 `os` + `systemos` 两份生成、
+   卷 UUID 用 APFS 卷身份。
+3. **显示驱动**：把固件已在用的 GOP 帧缓冲包装成 IOKit `IOFramebuffer`，
    WindowServer 才有设备可画。工作量以周计。
-2. **输入驱动**：USB 主机控制器或 PMIC 按键，交互的前提。
-3. **完整根卷**：`unixnu build userdata` 生成 `OS` + `Cryptex1,SystemOS`（约 8 GB），
-   刷进 userdata（`first_lba=3769068`、`last_lba=123786234`、`lba_bytes=4096`）。
-   注意 payload 与根卷不能共存于 userdata。
+4. **输入驱动**：USB 主机控制器或 PMIC 按键，交互的前提。
 
 ## 致谢
 
