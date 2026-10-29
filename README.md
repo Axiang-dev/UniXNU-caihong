@@ -2,19 +2,19 @@
 
 OnePlus Pad Pro（`caihong` / OPD2404 / SM8650）上的 UniXNU 移植。
 
-> ## 🚧 开发中（2026-10-29 更新）
+> ## 📦 已归档（2026-10-29）
 >
-> 仓库曾在 2026-10-24 归档，之后又继续推进并拿到关键突破，现已恢复维护。
+> 仓库转为只读存档：不再维护、不回复 issue。代码、文档与工具保留下来供后续参考。
 >
-> **这两天做完的**：
+> **做到哪一步**：真实 OS 根卷能挂载；认证失败（EAUTH 80）后由 bring-up 补丁放行，
+> 内核进入用户态并调起 `/sbin/launchd`；卡在 dyld 共享缓存
+> （`vm_shared_region_start_address() failed`）。HFS+ 根镜像已做好、离线校验通过，
+> **尚未在设备上验证**。
 >
-> - 真实 OS 根卷挂载成功后，内核卡在 `rootvp not authenticated after mounting`（EAUTH 80）
-> - 加了一个**仅供 bring-up** 的补丁让内核继续，屏幕实测进入 `bsd_init: Calling launchd`
-> - 现在卡在 `vm_shared_region_start_address() failed`——dyld 共享缓存不在根卷上
-> - 改走 HFS+ 根镜像（把 SystemOS 合并进根卷），镜像结构已离线校验通过，待上机验证
+> **想接着做的人**：从「下一步」一节继续，`scripts/` + `patches/` + `uefi-overlay/`
+> 足够复现当前状态。注意 bring-up 补丁绕过了根卷校验，**不能用于发布**。
 >
-> 细节见下文「[根卷与认证](#根卷与认证)」。
-> **bring-up 补丁绕过了根卷校验，不可用于发布。**
+> **恢复维护**：仓库页 Settings → Danger Zone → Unarchive。
 
 > **注意：本文档与仓库内的脚本、补丁主要由 AI 生成和整理，可能与实际设备行为存在偏差。**
 >
